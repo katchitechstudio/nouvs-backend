@@ -112,13 +112,17 @@ def haberleri_cek():
                 
                 print(f"  ✅ {eklenen} yeni haber eklendi")
                 print(f"  🗑️  {silinen} eski haber silindi")
+                return eklenen
             else:
                 print(f"  ❌ API hatası: {data.get('message')}")
+                return 0
         else:
             print(f"  ❌ HTTP Hatası: {response.status_code}")
+            return 0
             
     except Exception as e:
         print(f"  ❌ Hata: {e}")
+        return 0
 
 # API Endpoints
 @app.route('/')
@@ -132,6 +136,7 @@ def home():
             '/api/haberler': 'Tüm haberleri getir',
             '/api/haber/<id>': 'Tek haber detayı',
             '/api/kategori/<kategori>': 'Kategoriye göre haberler',
+            '/api/cek-haberler': 'Manuel haber çekme (tüm kategoriler)',
             '/health': 'Sağlık kontrolü'
         }
     })
@@ -271,6 +276,114 @@ def get_kategori_haberleri(kategori):
             'error': str(e)
         }), 500
 
+@app.route('/api/cek-haberler', methods=['GET'])
+def cek_haberler_manuel():
+    """
+    🔥 MANUEL HABER ÇEKME - TÜM KATEGORİLER
+    Test ve ilk kurulum için kullanılır
+    """
+    try:
+        print("\n" + "="*50)
+        print("🚀 MANUEL HABER ÇEKME BAŞLATILDI")
+        print("="*50)
+        
+        toplam_eklenen = 0
+        sonuclar = {}
+        
+        # Tüm kategorilerden haber çek
+        for kategori in KATEGORILER:
+            print(f"\n📂 Kategori: {kategori}")
+            
+            try:
+                response = requests.get(
+                    "https://api.collectapi.com/news/getNews",
+                    headers={
+                        "authorization": f"apikey {COLLECTAPI_TOKEN}",
+                        "content-type": "application/json"
+                    },
+                    params={
+                        "country": "tr",
+                        "tag": kategori
+                    },
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    if data.get('success'):
+                        haberler = data.get('result', [])
+                        
+                        conn = get_db()
+                        cursor = conn.cursor()
+                        
+                        eklenen = 0
+                        for haber in haberler:
+                            try:
+                                cursor.execute('''
+                                    INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                ''', (
+                                    haber.get('name'),
+                                    haber.get('description'),
+                                    haber.get('image'),
+                                    haber.get('source'),
+                                    haber.get('url'),
+                                    kategori
+                                ))
+                                eklenen += 1
+                            except sqlite3.IntegrityError:
+                                pass  # Haber zaten var
+                        
+                        conn.commit()
+                        cursor.close()
+                        conn.close()
+                        
+                        toplam_eklenen += eklenen
+                        sonuclar[kategori] = {
+                            'success': True,
+                            'eklenen': eklenen,
+                            'toplam': len(haberler)
+                        }
+                        print(f"  ✅ {eklenen}/{len(haberler)} haber eklendi")
+                    else:
+                        sonuclar[kategori] = {
+                            'success': False,
+                            'error': data.get('message', 'Bilinmeyen hata')
+                        }
+                        print(f"  ❌ API hatası")
+                else:
+                    sonuclar[kategori] = {
+                        'success': False,
+                        'error': f'HTTP {response.status_code}'
+                    }
+                    print(f"  ❌ HTTP Hatası: {response.status_code}")
+                    
+            except Exception as e:
+                sonuclar[kategori] = {
+                    'success': False,
+                    'error': str(e)
+                }
+                print(f"  ❌ Hata: {e}")
+        
+        print("\n" + "="*50)
+        print(f"🎉 TAMAMLANDI: {toplam_eklenen} HABER EKLENDİ")
+        print("="*50 + "\n")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Toplam {toplam_eklenen} haber eklendi',
+            'toplam_eklenen': toplam_eklenen,
+            'kategori_sayisi': len(KATEGORILER),
+            'detaylar': sonuclar
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/health', methods=['GET'])
 def health():
     """Sağlık kontrolü"""
@@ -313,7 +426,8 @@ if __name__ == '__main__':
     print("\n🚀 NouvsApp Backend başlatıldı!")
     print("📊 Her 1 saatte haber çekiliyor...")
     print("🔄 Kategoriler otomatik rotasyon: ", KATEGORILER)
-    print("🌐 API hazır: /api/haberler\n")
+    print("🌐 API hazır: /api/haberler")
+    print("🔥 Manuel çekme: /api/cek-haberler\n")
     
     # Flask'ı başlat
     port = int(os.environ.get('PORT', 10000))
