@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from psycopg2 import pool  # BAĞLANTI HAVUZU: Yeni eklenen import
 
 app = Flask(__name__)
 CORS(app)
@@ -17,13 +18,41 @@ CORS(app)
 COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '6QjqaX2e4cRQVH16F3SZZP:1uNWjCyfHX7OZC5OHzbviV')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# PostgreSQL bağlantısı
+# BAĞLANTI HAVUZU: Uygulama başlarken havuzu oluştur (min 1, max 10 bağlantı)
+try:
+    connection_pool = psycopg2.pool.SimpleConnectionPool(
+        minconn=1,
+        maxconn=10,
+        dsn=DATABASE_URL,
+        cursor_factory=RealDictCursor
+    )
+    print("✅ PostgreSQL bağlantı havuzu oluşturuldu.")
+except Exception as e:
+    print(f"❌ BAĞLANTI HAVUZU HATASI: {e}")
+    connection_pool = None
+
+# PostgreSQL bağlantısı (Artık havuzdan alınıyor)
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-    return conn
+    if connection_pool:
+        conn = connection_pool.getconn()
+        return conn
+    else:
+        # Havuz yoksa (başlangıçta hata olduysa) eski yöntemle bağlan
+        print("⚠️ Havuz hatası! Eski yöntemle bağlanılıyor.")
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        return conn
+
+# BAĞLANTI HAVUZU: Bağlantıyı kapatmak yerine havuza geri ver
+def release_db(conn):
+    if connection_pool:
+        connection_pool.putconn(conn)
+    else:
+        # Havuz yoksa (başlangıçta hata olduysa) bağlantıyı kapat
+        conn.close()
 
 # Veritabanı tablosu oluştur
 def init_db():
+    conn = None # try/finally bloğu için bağlantıyı dışarıda tanımla
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -46,12 +75,14 @@ def init_db():
         
         conn.commit()
         cursor.close()
-        conn.close()
         print("✅ PostgreSQL veritabanı hazır!")
         return True
     except Exception as e:
         print(f"❌ Veritabanı hatası: {e}")
         return False
+    finally:
+        if conn:
+            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
 
 # Kategoriler
 KATEGORILER = ["general", "sport", "economy", "technology", "health", "entertainment"]
@@ -66,6 +97,7 @@ def haberleri_cek():
     
     print(f"  📂 Kategori: {kategori}")
     
+    conn = None # try/finally bloğu için
     try:
         # CollectAPI'den çek
         response = requests.get(
@@ -118,7 +150,6 @@ def haberleri_cek():
                 conn.commit()
                 
                 cursor.close()
-                conn.close()
                 
                 print(f"  ✅ {eklenen} yeni haber eklendi")
                 print(f"  🗑️  {silinen} eski haber silindi")
@@ -133,6 +164,9 @@ def haberleri_cek():
     except Exception as e:
         print(f"  ❌ Hata: {e}")
         return 0
+    finally:
+        if conn:
+            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
 
 # API Endpoints
 @app.route('/')
@@ -155,6 +189,7 @@ def home():
 @app.route('/api/haberler', methods=['GET'])
 def get_haberler():
     """Tüm haberleri getir"""
+    conn = None
     try:
         limit = request.args.get('limit', 100, type=int)
         
@@ -171,7 +206,6 @@ def get_haberler():
         haberler = cursor.fetchall()
         
         cursor.close()
-        conn.close()
         
         return jsonify({
             'success': True,
@@ -184,10 +218,14 @@ def get_haberler():
             'success': False,
             'error': str(e)
         }), 500
+    finally:
+        if conn:
+            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
 
 @app.route('/api/haber/<int:haber_id>', methods=['GET'])
 def get_haber_detay(haber_id):
     """Tek haber detayı"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -201,7 +239,6 @@ def get_haber_detay(haber_id):
         haber = cursor.fetchone()
         
         cursor.close()
-        conn.close()
         
         if haber:
             return jsonify({
@@ -219,10 +256,14 @@ def get_haber_detay(haber_id):
             'success': False,
             'error': str(e)
         }), 500
+    finally:
+        if conn:
+            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
 
 @app.route('/api/kategori/<kategori>', methods=['GET'])
 def get_kategori_haberleri(kategori):
     """Kategoriye göre haberler"""
+    conn = None
     try:
         limit = request.args.get('limit', 50, type=int)
         
@@ -240,7 +281,6 @@ def get_kategori_haberleri(kategori):
         haberler = cursor.fetchall()
         
         cursor.close()
-        conn.close()
         
         return jsonify({
             'success': True,
@@ -254,6 +294,9 @@ def get_kategori_haberleri(kategori):
             'success': False,
             'error': str(e)
         }), 500
+    finally:
+        if conn:
+            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
 
 @app.route('/api/cek-haberler', methods=['GET'])
 def cek_haberler_manuel():
@@ -261,6 +304,7 @@ def cek_haberler_manuel():
     🔥 MANUEL HABER ÇEKME - TÜM KATEGORİLER
     Test ve ilk kurulum için kullanılır
     """
+    conn = None # try/finally bloğu için
     try:
         print("\n" + "="*50)
         print("🚀 MANUEL HABER ÇEKME BAŞLATILDI")
@@ -293,7 +337,7 @@ def cek_haberler_manuel():
                     if data.get('success'):
                         haberler = data.get('result', [])
                         
-                        conn = get_db()
+                        conn = get_db() # Döngü içinde bağlantı al
                         cursor = conn.cursor()
                         
                         eklenen = 0
@@ -317,7 +361,8 @@ def cek_haberler_manuel():
                         
                         conn.commit()
                         cursor.close()
-                        conn.close()
+                        release_db(conn) # BAĞLANTI HAVUZU: İşi biten bağlantıyı iade et
+                        conn = None # Bağlantı iade edildi, "finally" bloğunda tekrar denenmesin
                         
                         toplam_eklenen += eklenen
                         sonuclar[kategori] = {
@@ -345,7 +390,11 @@ def cek_haberler_manuel():
                     'error': str(e)
                 }
                 print(f"  ❌ Hata: {e}")
-        
+            finally:
+                if conn: # Eğer döngüde bir hata olur da bağlantı iade edilemezse
+                    release_db(conn)
+                    conn = None
+
         print("\n" + "="*50)
         print(f"🎉 TAMAMLANDI: {toplam_eklenen} HABER EKLENDİ")
         print("="*50 + "\n")
@@ -363,10 +412,13 @@ def cek_haberler_manuel():
             'success': False,
             'error': str(e)
         }), 500
+    # Ana `cek_haberler_manuel` fonksiyonunun 'finally' bloğu yok,
+    # çünkü bağlantılar iç döngüde alınıp bırakılıyor.
 
 @app.route('/health', methods=['GET'])
 def health():
     """Sağlık kontrolü"""
+    conn = None
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -380,7 +432,6 @@ def health():
         kategoriler = {row['kategori']: row['count'] for row in rows}
         
         cursor.close()
-        conn.close()
         
         return jsonify({
             'status': 'healthy',
@@ -395,6 +446,9 @@ def health():
             'status': 'unhealthy',
             'error': str(e)
         }), 500
+    finally:
+        if conn:
+            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
 
 if __name__ == '__main__':
     # Veritabanını hazırla
@@ -412,7 +466,7 @@ if __name__ == '__main__':
         scheduler.start()
         
         print("\n🚀 NouvsApp Backend başlatıldı!")
-        print("💾 Database: PostgreSQL")
+        print("💾 Database: PostgreSQL (Bağlantı Havuzlu)")
         print("📊 Her 1 saatte haber çekiliyor...")
         print("🔄 Kategoriler otomatik rotasyon: ", KATEGORILER)
         print("🌐 API hazır: /api/haberler")
