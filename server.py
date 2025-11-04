@@ -15,6 +15,7 @@ CORS(app)
 # ⚙️ AYARLAR
 # ─────────────────────────────────────────────
 
+# TOKEN'ınızı güvende tutmak için ortam değişkenini kullanın.
 COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '6QjqaX2e4cRQVH16F3SZZP:1uNWjCyfHX7OZC5OHzbviV')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
@@ -42,6 +43,7 @@ def init_db():
             )
         ''')
         
+        # Hız için indexler
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tarih ON haberler(tarih DESC)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_kategori ON haberler(kategori)')
         
@@ -57,7 +59,7 @@ def init_db():
 # Kategoriler
 KATEGORILER = ["general", "sport", "economy", "technology", "health", "entertainment"]
 
-# Haberleri API'den çek
+# Haberleri API'den çek (Sadece bir kategori, saatlik rotasyon)
 def haberleri_cek():
     print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Haberler çekiliyor...")
     
@@ -108,7 +110,7 @@ def haberleri_cek():
                         eklenen += 1
                     except psycopg2.IntegrityError:
                         conn.rollback()
-                        pass  # Haber zaten var
+                        pass  # Haber zaten var
                 
                 conn.commit()
                 
@@ -125,27 +127,28 @@ def haberleri_cek():
                 print(f"  🗑️  {silinen} eski haber silindi")
                 return eklenen
             else:
-                # API başarısız yanıtı (örneğin kısıtlı API anahtarı)
-                error_message = data.get('message')
+                # API'den gelen başarısız yanıtlar için
+                error_message = data.get('message', 'Bilinmeyen API hatası')
                 print(f"  ❌ API başarısız: {error_message}")
-                # 30 saniye bekleme, scheduler bir sonraki saatte tekrar deneyecek
-                time.sleep(30)
                 return 0
+        
         elif response.status_code == 429:
-            # Rate Limit Hatası - Çok Önemli
-            print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı.")
-            # 60 saniye bekleme, böylece scheduler hemen tekrar denemez
-            time.sleep(60) 
+            # Rate Limit Hatası (Dakikalık veya Aylık)
+            print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı. 1 dakika bekleniyor.")
+            # Hata döngüsüne girmemek için kısa bir bekleme
+            time.sleep(60)
             return 0
+        
         else:
             print(f"  ❌ HTTP Hatası: {response.status_code}")
             return 0
             
-    except requests.exceptions.Timeout:
-        print(f"  ❌ Hata: API isteği zaman aşımına uğradı (10 sn)")
+    except requests.exceptions.RequestException as e:
+        # Bağlantı zaman aşımı veya DNS hatası gibi ağ hataları
+        print(f"  ❌ Ağ/Bağlantı Hatası: {e}")
         return 0
     except Exception as e:
-        print(f"  ❌ Hata: {e}")
+        print(f"  ❌ Beklenmedik Hata: {e}")
         return 0
 
 # API Endpoints
@@ -154,7 +157,7 @@ def home():
     return jsonify({
         'app': 'NouvsApp Backend',
         'status': 'running',
-        'version': '2.0',
+        'version': '2.0 (Stabil)',
         'database': 'PostgreSQL',
         'description': 'Nouvelles (News) API Service',
         'endpoints': {
@@ -165,15 +168,9 @@ def home():
         }
     })
 
-# [ Diğer uç noktalar (`/api/haberler`, `/api/haber/<int:haber_id>`, `/api/kategori/<kategori>`, `/health`) AYNEN KALSIN ]
-
-# 🔥 MANUEL ÇEKME UÇ NOKTASI KALDIRILDI! 🔥
-# Bu kod parçası (cek_haberler_manuel fonksiyonu ve @app.route) silinmeli/yorum satırı yapılmalıdır.
-
-
 @app.route('/api/haberler', methods=['GET'])
 def get_haberler():
-# [ get_haberler fonksiyonu AYNEN KALSIN ]
+    """Tüm haberleri getir"""
     try:
         limit = request.args.get('limit', 100, type=int)
         
@@ -206,7 +203,7 @@ def get_haberler():
 
 @app.route('/api/haber/<int:haber_id>', methods=['GET'])
 def get_haber_detay(haber_id):
-# [ get_haber_detay fonksiyonu AYNEN KALSIN ]
+    """Tek haber detayı"""
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -241,7 +238,7 @@ def get_haber_detay(haber_id):
 
 @app.route('/api/kategori/<kategori>', methods=['GET'])
 def get_kategori_haberleri(kategori):
-# [ get_kategori_haberleri fonksiyonu AYNEN KALSIN ]
+    """Kategoriye göre haberler"""
     try:
         limit = request.args.get('limit', 50, type=int)
         
@@ -273,10 +270,12 @@ def get_kategori_haberleri(kategori):
             'success': False,
             'error': str(e)
         }), 500
-        
+
+# 🔥 Manuel çekme uç noktası CEK_HABERLER_MANUEL güvenlik ve stabilite nedeniyle tamamen KALDIRILMIŞTIR.
+
 @app.route('/health', methods=['GET'])
 def health():
-# [ health fonksiyonu AYNEN KALSIN ]
+    """Sağlık kontrolü"""
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -326,7 +325,7 @@ if __name__ == '__main__':
         print("📊 Her 1 saatte haber çekiliyor...")
         print("🔄 Kategoriler otomatik rotasyon: ", KATEGORILER)
         print("🌐 API hazır: /api/haberler")
-        print("🎉 Tüm kategorileri çekme uç noktası güvenlik nedeniyle kaldırıldı.")
+        print("🎉 Manuel çekme uç noktası güvenlik ve stabilite için kaldırıldı.")
         print("\n")
     else:
         print("❌ Veritabanı başlatılamadı!")
