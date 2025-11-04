@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from psycopg2 import pool  # BAĞLANTI HAVUZU: Yeni eklenen import
+import time # Hata durumunda beklemek için eklendi
 
 app = Flask(__name__)
 CORS(app)
@@ -18,41 +18,13 @@ CORS(app)
 COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '6QjqaX2e4cRQVH16F3SZZP:1uNWjCyfHX7OZC5OHzbviV')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# BAĞLANTI HAVUZU: Uygulama başlarken havuzu oluştur (min 1, max 10 bağlantı)
-try:
-    connection_pool = psycopg2.pool.SimpleConnectionPool(
-        minconn=1,
-        maxconn=10,
-        dsn=DATABASE_URL,
-        cursor_factory=RealDictCursor
-    )
-    print("✅ PostgreSQL bağlantı havuzu oluşturuldu.")
-except Exception as e:
-    print(f"❌ BAĞLANTI HAVUZU HATASI: {e}")
-    connection_pool = None
-
-# PostgreSQL bağlantısı (Artık havuzdan alınıyor)
+# PostgreSQL bağlantısı
 def get_db():
-    if connection_pool:
-        conn = connection_pool.getconn()
-        return conn
-    else:
-        # Havuz yoksa (başlangıçta hata olduysa) eski yöntemle bağlan
-        print("⚠️ Havuz hatası! Eski yöntemle bağlanılıyor.")
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-        return conn
-
-# BAĞLANTI HAVUZU: Bağlantıyı kapatmak yerine havuza geri ver
-def release_db(conn):
-    if connection_pool:
-        connection_pool.putconn(conn)
-    else:
-        # Havuz yoksa (başlangıçta hata olduysa) bağlantıyı kapat
-        conn.close()
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    return conn
 
 # Veritabanı tablosu oluştur
 def init_db():
-    conn = None # try/finally bloğu için bağlantıyı dışarıda tanımla
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -75,14 +47,12 @@ def init_db():
         
         conn.commit()
         cursor.close()
+        conn.close()
         print("✅ PostgreSQL veritabanı hazır!")
         return True
     except Exception as e:
         print(f"❌ Veritabanı hatası: {e}")
         return False
-    finally:
-        if conn:
-            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
 
 # Kategoriler
 KATEGORILER = ["general", "sport", "economy", "technology", "health", "entertainment"]
@@ -95,9 +65,8 @@ def haberleri_cek():
     saat = datetime.now().hour
     kategori = KATEGORILER[saat % len(KATEGORILER)]
     
-    print(f"  📂 Kategori: {kategori}")
+    print(f"  📂 Kategori: {kategori}")
     
-    conn = None # try/finally bloğu için
     try:
         # CollectAPI'den çek
         response = requests.get(
@@ -139,7 +108,7 @@ def haberleri_cek():
                         eklenen += 1
                     except psycopg2.IntegrityError:
                         conn.rollback()
-                        pass  # Haber zaten var
+                        pass  # Haber zaten var
                 
                 conn.commit()
                 
@@ -150,23 +119,34 @@ def haberleri_cek():
                 conn.commit()
                 
                 cursor.close()
+                conn.close()
                 
-                print(f"  ✅ {eklenen} yeni haber eklendi")
-                print(f"  🗑️  {silinen} eski haber silindi")
+                print(f"  ✅ {eklenen} yeni haber eklendi")
+                print(f"  🗑️  {silinen} eski haber silindi")
                 return eklenen
             else:
-                print(f"  ❌ API hatası: {data.get('message')}")
+                # API başarısız yanıtı (örneğin kısıtlı API anahtarı)
+                error_message = data.get('message')
+                print(f"  ❌ API başarısız: {error_message}")
+                # 30 saniye bekleme, scheduler bir sonraki saatte tekrar deneyecek
+                time.sleep(30)
                 return 0
+        elif response.status_code == 429:
+            # Rate Limit Hatası - Çok Önemli
+            print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı.")
+            # 60 saniye bekleme, böylece scheduler hemen tekrar denemez
+            time.sleep(60) 
+            return 0
         else:
-            print(f"  ❌ HTTP Hatası: {response.status_code}")
+            print(f"  ❌ HTTP Hatası: {response.status_code}")
             return 0
             
-    except Exception as e:
-        print(f"  ❌ Hata: {e}")
+    except requests.exceptions.Timeout:
+        print(f"  ❌ Hata: API isteği zaman aşımına uğradı (10 sn)")
         return 0
-    finally:
-        if conn:
-            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
+    except Exception as e:
+        print(f"  ❌ Hata: {e}")
+        return 0
 
 # API Endpoints
 @app.route('/')
@@ -181,15 +161,19 @@ def home():
             '/api/haberler': 'Tüm haberleri getir',
             '/api/haber/<id>': 'Tek haber detayı',
             '/api/kategori/<kategori>': 'Kategoriye göre haberler',
-            '/api/cek-haberler': 'Manuel haber çekme (tüm kategoriler)',
             '/health': 'Sağlık kontrolü'
         }
     })
 
+# [ Diğer uç noktalar (`/api/haberler`, `/api/haber/<int:haber_id>`, `/api/kategori/<kategori>`, `/health`) AYNEN KALSIN ]
+
+# 🔥 MANUEL ÇEKME UÇ NOKTASI KALDIRILDI! 🔥
+# Bu kod parçası (cek_haberler_manuel fonksiyonu ve @app.route) silinmeli/yorum satırı yapılmalıdır.
+
+
 @app.route('/api/haberler', methods=['GET'])
 def get_haberler():
-    """Tüm haberleri getir"""
-    conn = None
+# [ get_haberler fonksiyonu AYNEN KALSIN ]
     try:
         limit = request.args.get('limit', 100, type=int)
         
@@ -206,6 +190,7 @@ def get_haberler():
         haberler = cursor.fetchall()
         
         cursor.close()
+        conn.close()
         
         return jsonify({
             'success': True,
@@ -218,14 +203,10 @@ def get_haberler():
             'success': False,
             'error': str(e)
         }), 500
-    finally:
-        if conn:
-            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
 
 @app.route('/api/haber/<int:haber_id>', methods=['GET'])
 def get_haber_detay(haber_id):
-    """Tek haber detayı"""
-    conn = None
+# [ get_haber_detay fonksiyonu AYNEN KALSIN ]
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -239,6 +220,7 @@ def get_haber_detay(haber_id):
         haber = cursor.fetchone()
         
         cursor.close()
+        conn.close()
         
         if haber:
             return jsonify({
@@ -256,14 +238,10 @@ def get_haber_detay(haber_id):
             'success': False,
             'error': str(e)
         }), 500
-    finally:
-        if conn:
-            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
 
 @app.route('/api/kategori/<kategori>', methods=['GET'])
 def get_kategori_haberleri(kategori):
-    """Kategoriye göre haberler"""
-    conn = None
+# [ get_kategori_haberleri fonksiyonu AYNEN KALSIN ]
     try:
         limit = request.args.get('limit', 50, type=int)
         
@@ -281,6 +259,7 @@ def get_kategori_haberleri(kategori):
         haberler = cursor.fetchall()
         
         cursor.close()
+        conn.close()
         
         return jsonify({
             'success': True,
@@ -294,131 +273,10 @@ def get_kategori_haberleri(kategori):
             'success': False,
             'error': str(e)
         }), 500
-    finally:
-        if conn:
-            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
-
-@app.route('/api/cek-haberler', methods=['GET'])
-def cek_haberler_manuel():
-    """
-    🔥 MANUEL HABER ÇEKME - TÜM KATEGORİLER
-    Test ve ilk kurulum için kullanılır
-    """
-    conn = None # try/finally bloğu için
-    try:
-        print("\n" + "="*50)
-        print("🚀 MANUEL HABER ÇEKME BAŞLATILDI")
-        print("="*50)
         
-        toplam_eklenen = 0
-        sonuclar = {}
-        
-        # Tüm kategorilerden haber çek
-        for kategori in KATEGORILER:
-            print(f"\n📂 Kategori: {kategori}")
-            
-            try:
-                response = requests.get(
-                    "https://api.collectapi.com/news/getNews",
-                    headers={
-                        "authorization": f"apikey {COLLECTAPI_TOKEN}",
-                        "content-type": "application/json"
-                    },
-                    params={
-                        "country": "tr",
-                        "tag": kategori
-                    },
-                    timeout=10
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    if data.get('success'):
-                        haberler = data.get('result', [])
-                        
-                        conn = get_db() # Döngü içinde bağlantı al
-                        cursor = conn.cursor()
-                        
-                        eklenen = 0
-                        for haber in haberler:
-                            try:
-                                cursor.execute('''
-                                    INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori)
-                                    VALUES (%s, %s, %s, %s, %s, %s)
-                                ''', (
-                                    haber.get('name'),
-                                    haber.get('description'),
-                                    haber.get('image'),
-                                    haber.get('source'),
-                                    haber.get('url'),
-                                    kategori
-                                ))
-                                eklenen += 1
-                            except psycopg2.IntegrityError:
-                                conn.rollback()
-                                pass  # Haber zaten var
-                        
-                        conn.commit()
-                        cursor.close()
-                        release_db(conn) # BAĞLANTI HAVUZU: İşi biten bağlantıyı iade et
-                        conn = None # Bağlantı iade edildi, "finally" bloğunda tekrar denenmesin
-                        
-                        toplam_eklenen += eklenen
-                        sonuclar[kategori] = {
-                            'success': True,
-                            'eklenen': eklenen,
-                            'toplam': len(haberler)
-                        }
-                        print(f"  ✅ {eklenen}/{len(haberler)} haber eklendi")
-                    else:
-                        sonuclar[kategori] = {
-                            'success': False,
-                            'error': data.get('message', 'Bilinmeyen hata')
-                        }
-                        print(f"  ❌ API hatası")
-                else:
-                    sonuclar[kategori] = {
-                        'success': False,
-                        'error': f'HTTP {response.status_code}'
-                    }
-                    print(f"  ❌ HTTP Hatası: {response.status_code}")
-                    
-            except Exception as e:
-                sonuclar[kategori] = {
-                    'success': False,
-                    'error': str(e)
-                }
-                print(f"  ❌ Hata: {e}")
-            finally:
-                if conn: # Eğer döngüde bir hata olur da bağlantı iade edilemezse
-                    release_db(conn)
-                    conn = None
-
-        print("\n" + "="*50)
-        print(f"🎉 TAMAMLANDI: {toplam_eklenen} HABER EKLENDİ")
-        print("="*50 + "\n")
-        
-        return jsonify({
-            'success': True,
-            'message': f'Toplam {toplam_eklenen} haber eklendi',
-            'toplam_eklenen': toplam_eklenen,
-            'kategori_sayisi': len(KATEGORILER),
-            'detaylar': sonuclar
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-    # Ana `cek_haberler_manuel` fonksiyonunun 'finally' bloğu yok,
-    # çünkü bağlantılar iç döngüde alınıp bırakılıyor.
-
 @app.route('/health', methods=['GET'])
 def health():
-    """Sağlık kontrolü"""
-    conn = None
+# [ health fonksiyonu AYNEN KALSIN ]
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -432,6 +290,7 @@ def health():
         kategoriler = {row['kategori']: row['count'] for row in rows}
         
         cursor.close()
+        conn.close()
         
         return jsonify({
             'status': 'healthy',
@@ -446,9 +305,6 @@ def health():
             'status': 'unhealthy',
             'error': str(e)
         }), 500
-    finally:
-        if conn:
-            release_db(conn) # BAĞLANTI HAVUZU: Bağlantıyı havuza iade et
 
 if __name__ == '__main__':
     # Veritabanını hazırla
@@ -466,11 +322,12 @@ if __name__ == '__main__':
         scheduler.start()
         
         print("\n🚀 NouvsApp Backend başlatıldı!")
-        print("💾 Database: PostgreSQL (Bağlantı Havuzlu)")
+        print("💾 Database: PostgreSQL")
         print("📊 Her 1 saatte haber çekiliyor...")
         print("🔄 Kategoriler otomatik rotasyon: ", KATEGORILER)
         print("🌐 API hazır: /api/haberler")
-        print("🔥 Manuel çekme: /api/cek-haberler\n")
+        print("🎉 Tüm kategorileri çekme uç noktası güvenlik nedeniyle kaldırıldı.")
+        print("\n")
     else:
         print("❌ Veritabanı başlatılamadı!")
     
