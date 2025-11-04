@@ -4,45 +4,54 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import requests
 import os
 from datetime import datetime, timedelta
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 app = Flask(__name__)
 CORS(app)
 
 # ─────────────────────────────────────────────
-# ⚙️ AYARLAR - API TOKEN
+# ⚙️ AYARLAR
 # ─────────────────────────────────────────────
 
 COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '6QjqaX2e4cRQVH16F3SZZP:1uNWjCyfHX7OZC5OHzbviV')
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# ─────────────────────────────────────────────
-
-# SQLite veritabanı
+# PostgreSQL bağlantısı
 def get_db():
-    conn = sqlite3.connect('haberler.db', check_same_thread=False)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
 
 # Veritabanı tablosu oluştur
 def init_db():
-    conn = get_db()
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS haberler (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            baslik TEXT UNIQUE,
-            aciklama TEXT,
-            gorsel TEXT,
-            kaynak TEXT,
-            url TEXT,
-            kategori TEXT,
-            tarih TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.execute('CREATE INDEX IF NOT EXISTS idx_tarih ON haberler(tarih DESC)')
-    conn.execute('CREATE INDEX IF NOT EXISTS idx_kategori ON haberler(kategori)')
-    conn.commit()
-    conn.close()
-    print("✅ Veritabanı hazır!")
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS haberler (
+                id SERIAL PRIMARY KEY,
+                baslik TEXT UNIQUE NOT NULL,
+                aciklama TEXT,
+                gorsel TEXT,
+                kaynak TEXT,
+                url TEXT,
+                kategori TEXT,
+                tarih TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_tarih ON haberler(tarih DESC)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_kategori ON haberler(kategori)')
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("✅ PostgreSQL veritabanı hazır!")
+        return True
+    except Exception as e:
+        print(f"❌ Veritabanı hatası: {e}")
+        return False
 
 # Kategoriler
 KATEGORILER = ["general", "sport", "economy", "technology", "health", "entertainment"]
@@ -86,7 +95,7 @@ def haberleri_cek():
                     try:
                         cursor.execute('''
                             INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            VALUES (%s, %s, %s, %s, %s, %s)
                         ''', (
                             haber.get('name'),
                             haber.get('description'),
@@ -96,14 +105,15 @@ def haberleri_cek():
                             kategori
                         ))
                         eklenen += 1
-                    except sqlite3.IntegrityError:
+                    except psycopg2.IntegrityError:
+                        conn.rollback()
                         pass  # Haber zaten var
                 
                 conn.commit()
                 
                 # Eski haberleri sil (7 günden eski)
                 silme_tarihi = datetime.now() - timedelta(days=7)
-                cursor.execute('DELETE FROM haberler WHERE tarih < ?', (silme_tarihi,))
+                cursor.execute('DELETE FROM haberler WHERE tarih < %s', (silme_tarihi,))
                 silinen = cursor.rowcount
                 conn.commit()
                 
@@ -130,7 +140,8 @@ def home():
     return jsonify({
         'app': 'NouvsApp Backend',
         'status': 'running',
-        'version': '1.0',
+        'version': '2.0',
+        'database': 'PostgreSQL',
         'description': 'Nouvelles (News) API Service',
         'endpoints': {
             '/api/haberler': 'Tüm haberleri getir',
@@ -154,21 +165,10 @@ def get_haberler():
             SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, tarih
             FROM haberler 
             ORDER BY tarih DESC 
-            LIMIT ?
+            LIMIT %s
         ''', (limit,))
         
-        haberler = []
-        for row in cursor.fetchall():
-            haberler.append({
-                'id': row['id'],
-                'baslik': row['baslik'],
-                'aciklama': row['aciklama'],
-                'gorsel': row['gorsel'],
-                'kaynak': row['kaynak'],
-                'url': row['url'],
-                'kategori': row['kategori'],
-                'tarih': row['tarih']
-            })
+        haberler = cursor.fetchall()
         
         cursor.close()
         conn.close()
@@ -195,25 +195,15 @@ def get_haber_detay(haber_id):
         cursor.execute('''
             SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, tarih
             FROM haberler 
-            WHERE id = ?
+            WHERE id = %s
         ''', (haber_id,))
         
-        row = cursor.fetchone()
+        haber = cursor.fetchone()
         
         cursor.close()
         conn.close()
         
-        if row:
-            haber = {
-                'id': row['id'],
-                'baslik': row['baslik'],
-                'aciklama': row['aciklama'],
-                'gorsel': row['gorsel'],
-                'kaynak': row['kaynak'],
-                'url': row['url'],
-                'kategori': row['kategori'],
-                'tarih': row['tarih']
-            }
+        if haber:
             return jsonify({
                 'success': True,
                 'haber': haber
@@ -242,23 +232,12 @@ def get_kategori_haberleri(kategori):
         cursor.execute('''
             SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, tarih
             FROM haberler 
-            WHERE kategori = ?
+            WHERE kategori = %s
             ORDER BY tarih DESC 
-            LIMIT ?
+            LIMIT %s
         ''', (kategori, limit))
         
-        haberler = []
-        for row in cursor.fetchall():
-            haberler.append({
-                'id': row['id'],
-                'baslik': row['baslik'],
-                'aciklama': row['aciklama'],
-                'gorsel': row['gorsel'],
-                'kaynak': row['kaynak'],
-                'url': row['url'],
-                'kategori': row['kategori'],
-                'tarih': row['tarih']
-            })
+        haberler = cursor.fetchall()
         
         cursor.close()
         conn.close()
@@ -322,7 +301,7 @@ def cek_haberler_manuel():
                             try:
                                 cursor.execute('''
                                     INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori)
-                                    VALUES (?, ?, ?, ?, ?, ?)
+                                    VALUES (%s, %s, %s, %s, %s, %s)
                                 ''', (
                                     haber.get('name'),
                                     haber.get('description'),
@@ -332,7 +311,8 @@ def cek_haberler_manuel():
                                     kategori
                                 ))
                                 eklenen += 1
-                            except sqlite3.IntegrityError:
+                            except psycopg2.IntegrityError:
+                                conn.rollback()
                                 pass  # Haber zaten var
                         
                         conn.commit()
@@ -387,47 +367,58 @@ def cek_haberler_manuel():
 @app.route('/health', methods=['GET'])
 def health():
     """Sağlık kontrolü"""
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute('SELECT COUNT(*) FROM haberler')
-    count = cursor.fetchone()[0]
-    
-    # Kategori bazlı sayım
-    cursor.execute('SELECT kategori, COUNT(*) FROM haberler GROUP BY kategori')
-    kategoriler = {row[0]: row[1] for row in cursor.fetchall()}
-    
-    cursor.close()
-    conn.close()
-    
-    return jsonify({
-        'status': 'healthy',
-        'app': 'NouvsApp Backend',
-        'timestamp': datetime.now().isoformat(),
-        'toplam_haber': count,
-        'kategoriler': kategoriler
-    })
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) as count FROM haberler')
+        result = cursor.fetchone()
+        count = result['count'] if result else 0
+        
+        # Kategori bazlı sayım
+        cursor.execute('SELECT kategori, COUNT(*) as count FROM haberler GROUP BY kategori')
+        rows = cursor.fetchall()
+        kategoriler = {row['kategori']: row['count'] for row in rows}
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'healthy',
+            'app': 'NouvsApp Backend',
+            'database': 'PostgreSQL',
+            'timestamp': datetime.now().isoformat(),
+            'toplam_haber': count,
+            'kategoriler': kategoriler
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 500
 
 if __name__ == '__main__':
     # Veritabanını hazırla
-    init_db()
-    
-    # İlk haberleri çek
-    haberleri_cek()
-    
-    # Scheduler başlat (her 1 saatte)
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(
-        func=haberleri_cek,
-        trigger="interval",
-        hours=1
-    )
-    scheduler.start()
-    
-    print("\n🚀 NouvsApp Backend başlatıldı!")
-    print("📊 Her 1 saatte haber çekiliyor...")
-    print("🔄 Kategoriler otomatik rotasyon: ", KATEGORILER)
-    print("🌐 API hazır: /api/haberler")
-    print("🔥 Manuel çekme: /api/cek-haberler\n")
+    if init_db():
+        # İlk haberleri çek
+        haberleri_cek()
+        
+        # Scheduler başlat (her 1 saatte)
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(
+            func=haberleri_cek,
+            trigger="interval",
+            hours=1
+        )
+        scheduler.start()
+        
+        print("\n🚀 NouvsApp Backend başlatıldı!")
+        print("💾 Database: PostgreSQL")
+        print("📊 Her 1 saatte haber çekiliyor...")
+        print("🔄 Kategoriler otomatik rotasyon: ", KATEGORILER)
+        print("🌐 API hazır: /api/haberler")
+        print("🔥 Manuel çekme: /api/cek-haberler\n")
+    else:
+        print("❌ Veritabanı başlatılamadı!")
     
     # Flask'ı başlat
     port = int(os.environ.get('PORT', 10000))
