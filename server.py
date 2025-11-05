@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import time # Hata durumunda beklemek için eklendi
+import time
 
 app = Flask(__name__)
 CORS(app)
@@ -15,7 +15,6 @@ CORS(app)
 # ⚙️ AYARLAR
 # ─────────────────────────────────────────────
 
-# TOKEN'ınızı güvende tutmak için ortam değişkenini kullanın.
 COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '6QjqaX2e4cRQVH16F3SZZP:1uNWjCyfHX7OZC5OHzbviV')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
@@ -67,7 +66,7 @@ def haberleri_cek():
     saat = datetime.now().hour
     kategori = KATEGORILER[saat % len(KATEGORILER)]
     
-    print(f"  📂 Kategori: {kategori}")
+    print(f"  📂 Kategori: {kategori}")
     
     try:
         # CollectAPI'den çek
@@ -123,32 +122,28 @@ def haberleri_cek():
                 cursor.close()
                 conn.close()
                 
-                print(f"  ✅ {eklenen} yeni haber eklendi")
-                print(f"  🗑️  {silinen} eski haber silindi")
+                print(f"  ✅ {eklenen} yeni haber eklendi")
+                print(f"  🗑️  {silinen} eski haber silindi")
                 return eklenen
             else:
-                # API'den gelen başarısız yanıtlar için
                 error_message = data.get('message', 'Bilinmeyen API hatası')
-                print(f"  ❌ API başarısız: {error_message}")
+                print(f"  ❌ API başarısız: {error_message}")
                 return 0
         
         elif response.status_code == 429:
-            # Rate Limit Hatası (Dakikalık veya Aylık)
-            print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı. 1 dakika bekleniyor.")
-            # Hata döngüsüne girmemek için kısa bir bekleme
+            print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı.")
             time.sleep(60)
             return 0
         
         else:
-            print(f"  ❌ HTTP Hatası: {response.status_code}")
+            print(f"  ❌ HTTP Hatası: {response.status_code}")
             return 0
             
     except requests.exceptions.RequestException as e:
-        # Bağlantı zaman aşımı veya DNS hatası gibi ağ hataları
-        print(f"  ❌ Ağ/Bağlantı Hatası: {e}")
+        print(f"  ❌ Ağ/Bağlantı Hatası: {e}")
         return 0
     except Exception as e:
-        print(f"  ❌ Beklenmedik Hata: {e}")
+        print(f"  ❌ Beklenmedik Hata: {e}")
         return 0
 
 # API Endpoints
@@ -157,13 +152,14 @@ def home():
     return jsonify({
         'app': 'NouvsApp Backend',
         'status': 'running',
-        'version': '2.0 (Stabil)',
+        'version': '2.1 (Stabil)',
         'database': 'PostgreSQL',
         'description': 'Nouvelles (News) API Service',
         'endpoints': {
             '/api/haberler': 'Tüm haberleri getir',
             '/api/haber/<id>': 'Tek haber detayı',
             '/api/kategori/<kategori>': 'Kategoriye göre haberler',
+            '/api/cek-haberler': 'Manuel haber çekme (UptimeRobot için)',
             '/health': 'Sağlık kontrolü'
         }
     })
@@ -271,9 +267,21 @@ def get_kategori_haberleri(kategori):
             'error': str(e)
         }), 500
 
-# 🔥 Manuel çekme uç noktası CEK_HABERLER_MANUEL güvenlik ve stabilite nedeniyle tamamen KALDIRILMIŞTIR.
+# 🔥 YENI: Manuel haber çekme endpoint'i (UptimeRobot için)
+@app.route('/api/cek-haberler', methods=['GET', 'POST'])
+def cek_haberler_manual():
+    """Manuel haber çekme - UptimeRobot her saat bunu çekecek"""
+    print(f"\n[MANUEL ÇEKİM] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    result = haberleri_cek()
+    
+    return jsonify({
+        'success': True,
+        'message': f'{result} haber eklendi',
+        'eklenen': result,
+        'timestamp': datetime.now().isoformat()
+    })
 
-@app.route('/health', methods=['GET'])
+@app.route('/health', methods=['GET', 'HEAD'])
 def health():
     """Sağlık kontrolü"""
     try:
@@ -308,24 +316,30 @@ def health():
 if __name__ == '__main__':
     # Veritabanını hazırla
     if init_db():
-        # İlk haberleri çek
+        # İlk haberleri çek (uygulama başladığında)
         haberleri_cek()
         
-        # Scheduler başlat (her 1 saatte)
-        scheduler = BackgroundScheduler()
-        scheduler.add_job(
-            func=haberleri_cek,
-            trigger="interval",
-            hours=1
-        )
-        scheduler.start()
+        # Scheduler başlat (backup olarak, ama Render'da her zaman çalışmaz)
+        try:
+            scheduler = BackgroundScheduler()
+            scheduler.add_job(
+                func=haberleri_cek,
+                trigger="interval",
+                hours=1
+            )
+            scheduler.start()
+            print("✅ Scheduler başlatıldı (backup)")
+        except Exception as e:
+            print(f"⚠️  Scheduler başlatılamadı: {e}")
+            print("ℹ️  UptimeRobot /api/cek-haberler endpoint'ini kullanacak")
         
         print("\n🚀 NouvsApp Backend başlatıldı!")
         print("💾 Database: PostgreSQL")
         print("📊 Her 1 saatte haber çekiliyor...")
         print("🔄 Kategoriler otomatik rotasyon: ", KATEGORILER)
         print("🌐 API hazır: /api/haberler")
-        print("🎉 Manuel çekme uç noktası güvenlik ve stabilite için kaldırıldı.")
+        print("🎯 Manuel çekme: /api/cek-haberler")
+        print("✅ UptimeRobot /api/cek-haberler endpoint'ini çekecek")
         print("\n")
     else:
         print("❌ Veritabanı başlatılamadı!")
