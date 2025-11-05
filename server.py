@@ -62,11 +62,11 @@ KATEGORILER = ["general", "sport", "economy", "technology", "health", "entertain
 def haberleri_cek():
     print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Haberler çekiliyor...")
     
-    # Saate göre kategori seç (rotasyon)
+    # Saate göre kategori seç (sıralı rotasyon 0-23 saat)
     saat = datetime.now().hour
     kategori = KATEGORILER[saat % len(KATEGORILER)]
     
-    print(f"  📂 Kategori: {kategori}")
+    print(f"  📂 Kategori: {kategori} (Saat: {saat})")
     
     try:
         # CollectAPI'den çek
@@ -152,7 +152,7 @@ def home():
     return jsonify({
         'app': 'NouvsApp Backend',
         'status': 'running',
-        'version': '2.1 (Stabil)',
+        'version': '2.2 (Stabil)',
         'database': 'PostgreSQL',
         'description': 'Nouvelles (News) API Service',
         'endpoints': {
@@ -336,7 +336,9 @@ if __name__ == '__main__':
         print("\n🚀 NouvsApp Backend başlatıldı!")
         print("💾 Database: PostgreSQL")
         print("📊 Her 1 saatte haber çekiliyor...")
-        print("🔄 Kategoriler otomatik rotasyon: ", KATEGORILER)
+        print("🔄 Kategoriler sıralı rotasyon:")
+        for i, kat in enumerate(KATEGORILER):
+            print(f"   Saat {i} → {kat}")
         print("🌐 API hazır: /api/haberler")
         print("🎯 Manuel çekme: /api/cek-haberler")
         print("✅ UptimeRobot /api/cek-haberler endpoint'ini çekecek")
