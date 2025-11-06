@@ -15,12 +15,11 @@ CORS(app)
 # ⚙️ AYARLAR
 # ─────────────────────────────────────────────
 
-# DÜZELTİLDİ: Yeni API anahtarı (7FmauU73yf156Wszw2fTGR:6PeLiyxAGyN8x31F7TO3xH) yedek olarak tanımlandı.
 COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '7FmauU73yf156Wszw2fTGR:6PeLiyxAGyN8x31F7TO3xH')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# ✅ YENİ: Sadece bu kaynakları yayınla
-ALLOWED_SOURCES = ['NTV', 'CNN']
+# ✅ GÜNCEL: 4 kaliteli kaynak
+ALLOWED_SOURCES = ['NTV', 'CNN', 'Cumhuriyet', 'HaberTürk']
 
 # PostgreSQL bağlantısı
 def get_db():
@@ -60,17 +59,18 @@ def init_db():
         print(f"❌ Veritabanı hatası: {e}")
         return False
 
-# Kategoriler
-KATEGORILER = ["general", "sport", "economy", "technology", "health", "entertainment"]
+# ✅ GÜNCEL: 5 kategori rotasyonu
+KATEGORILER = ["general", "economy", "sport", "health", "technology"]
 
-# Haberleri API'den çek (Sadece bir kategori, saatlik rotasyon)
+# Haberleri API'den çek (5 kategori rotasyonu)
 def haberleri_cek():
     print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Haberler çekiliyor...")
     
-    # ✅ YENİ: Sabit "general" - tüm kategorileri içeriyor
-    kategori = "general"
+    # ✅ ROTASYON: Saate göre kategori seç
+    saat = datetime.now().hour
+    kategori = KATEGORILER[saat % len(KATEGORILER)]
     
-    print(f"  📂 Kategori: {kategori} (Tüm kategoriler)")
+    print(f"  📂 Kategori: {kategori} (Saat {saat}, Rotasyon: {saat % len(KATEGORILER)})")
     print(f"  🎯 Kaynaklar: {', '.join(ALLOWED_SOURCES)}")
     
     try:
@@ -87,10 +87,6 @@ def haberleri_cek():
             },
             timeout=10
         )
-        
-        # 🔥 KRİTİK TEŞHİS LOGLARI
-        print(f"COLLECTAPI STATUS: {response.status_code}")
-        print(f"COLLECTAPI RESPONSE: {response.text[:500]}") 
         
         if response.status_code == 200:
             data = response.json()
@@ -109,10 +105,9 @@ def haberleri_cek():
                         kaynak = haber.get('source', '').strip()
                         
                         if kaynak not in ALLOWED_SOURCES:
-                            print(f"  ⏭️  Skipped: {kaynak} (izin verilmeyen kaynak)")
+                            print(f"    ⏭️  Skipped: {kaynak} (izin verilmeyen kaynak)")
                             continue
                         
-                        # Tarih verisi CollectAPI'den çekiliyor.
                         cursor.execute('''
                             INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori, tarih)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -141,7 +136,7 @@ def haberleri_cek():
                 cursor.close()
                 conn.close()
                 
-                print(f"  ✅ {eklenen} yeni haber eklendi (Sadece NTV + CNN)")
+                print(f"  ✅ {eklenen} yeni haber eklendi ({kategori} - {', '.join(ALLOWED_SOURCES)})")
                 print(f"  🗑️  {silinen} eski haber silindi")
                 return eklenen
             else:
@@ -171,22 +166,23 @@ def home():
     return jsonify({
         'app': 'NouvsApp Backend',
         'status': 'running',
-        'version': '2.3 (NTV + CNN Filter)',
+        'version': '3.0 (4-Source Rotation)',
         'database': 'PostgreSQL',
         'description': 'Nouvelles (News) API Service',
         'allowed_sources': ALLOWED_SOURCES,
+        'kategoriler': KATEGORILER,
         'endpoints': {
-            '/api/haberler': 'Tüm haberleri getir (Sadece NTV + CNN)',
+            '/api/haberler': 'Tüm haberleri getir (Sadece kaliteli 4 kaynak)',
             '/api/haber/<id>': 'Tek haber detayı',
-            '/api/kategori/<kategori>': 'Kategoriye göre haberler (Sadece NTV + CNN)',
-            '/api/cek-haberler': 'Manuel haber çekme (UptimeRobot için)',
+            '/api/kategori/<kategori>': 'Kategoriye göre haberler',
+            '/api/cek-haberler': 'Manuel haber çekme',
             '/health': 'Sağlık kontrolü'
         }
     })
 
 @app.route('/api/haberler', methods=['GET'])
 def get_haberler():
-    """Tüm haberleri getir (Sadece NTV ve CNN)"""
+    """Tüm haberleri getir (Sadece kaliteli 4 kaynak)"""
     try:
         limit = request.args.get('limit', 100, type=int)
         
@@ -257,7 +253,7 @@ def get_haber_detay(haber_id):
 
 @app.route('/api/kategori/<kategori>', methods=['GET'])
 def get_kategori_haberleri(kategori):
-    """Kategoriye göre haberler (Sadece NTV ve CNN)"""
+    """Kategoriye göre haberler (Sadece kaliteli 4 kaynak)"""
     try:
         limit = request.args.get('limit', 50, type=int)
         
@@ -300,9 +296,10 @@ def cek_haberler_manual():
     
     return jsonify({
         'success': True,
-        'message': f'{result} haber eklendi (NTV + CNN)',
+        'message': f'{result} haber eklendi (4 kaliteli kaynak)',
         'eklenen': result,
         'allowed_sources': ALLOWED_SOURCES,
+        'kategoriler': KATEGORILER,
         'timestamp': datetime.now().isoformat()
     })
 
@@ -343,10 +340,11 @@ def health():
             'app': 'NouvsApp Backend',
             'database': 'PostgreSQL',
             'allowed_sources': ALLOWED_SOURCES,
+            'kategoriler': KATEGORILER,
             'timestamp': datetime.now().isoformat(),
             'toplam_haber': count,
             'kaynaklar': kaynaklar,
-            'kategoriler': kategoriler
+            'kategoriler_sayim': kategoriler
         })
     except Exception as e:
         return jsonify({
@@ -369,7 +367,7 @@ if __name__ == '__main__':
                 hours=1
             )
             scheduler.start()
-            print("✅ Scheduler başlatıldı (backup)")
+            print("✅ Scheduler başlatıldı (1 saatte bir)")
         except Exception as e:
             print(f"⚠️  Scheduler başlatılamadı: {e}")
             print("ℹ️  UptimeRobot /api/cek-haberler endpoint'ini kullanacak")
@@ -377,11 +375,10 @@ if __name__ == '__main__':
         print("\n🚀 NouvsApp Backend başlatıldı!")
         print("💾 Database: PostgreSQL")
         print(f"🎯 İzin verilen kaynaklar: {', '.join(ALLOWED_SOURCES)}")
-        print("📊 Her 1 saatte haber çekiliyor...")
-        print("🔄 Kategoriler sıralı rotasyon:")
+        print("📊 Her 1 saatte haber çekiliyor (5 kategori rotasyonu):")
         for i, kat in enumerate(KATEGORILER):
-            print(f"    Saat {i} → {kat}")
-        print("🌐 API hazır: /api/haberler (NTV + CNN filtered)")
+            print(f"    Saat {i % 24} → {kat}")
+        print("🌐 API hazır: /api/haberler (4 kaynak filtered)")
         print("🎯 Manuel çekme: /api/cek-haberler")
         print("✅ UptimeRobot /api/cek-haberler endpoint'ini çekecek")
         print("\n")
