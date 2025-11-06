@@ -95,17 +95,20 @@ def haberleri_cek():
                 eklenen = 0
                 for haber in haberler:
                     try:
+                        # ⬇️⬇️⬇️ BURASI GÜNCELLENDİ (Tarih eklendi) ⬇️⬇️⬇️
                         cursor.execute('''
-                            INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori)
-                            VALUES (%s, %s, %s, %s, %s, %s)
+                            INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori, tarih)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
                         ''', (
                             haber.get('name'),
                             haber.get('description'),
                             haber.get('image'),
                             haber.get('source'),
                             haber.get('url'),
-                            kategori
+                            kategori,
+                            haber.get('date') # CollectAPI'den gelen doğru tarihi kullan
                         ))
+                        # ⬆️⬆️⬆️ BURASI GÜNCELLENDİ (Tarih eklendi) ⬆️⬆️⬆️
                         eklenen += 1
                     except psycopg2.IntegrityError:
                         conn.rollback()
@@ -129,7 +132,7 @@ def haberleri_cek():
                 error_message = data.get('message', 'Bilinmeyen API hatası')
                 print(f"  ❌ API başarısız: {error_message}")
                 return 0
-        
+            
         elif response.status_code == 429:
             print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı.")
             time.sleep(60)
@@ -338,7 +341,7 @@ if __name__ == '__main__':
         print("📊 Her 1 saatte haber çekiliyor...")
         print("🔄 Kategoriler sıralı rotasyon:")
         for i, kat in enumerate(KATEGORILER):
-            print(f"   Saat {i} → {kat}")
+            print(f"    Saat {i} → {kat}")
         print("🌐 API hazır: /api/haberler")
         print("🎯 Manuel çekme: /api/cek-haberler")
         print("✅ UptimeRobot /api/cek-haberler endpoint'ini çekecek")
