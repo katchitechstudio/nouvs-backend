@@ -95,7 +95,7 @@ def haberleri_cek():
                 eklenen = 0
                 for haber in haberler:
                     try:
-                        # ⬇️⬇️⬇️ BURASI GÜNCELLENDİ (Tarih eklendi) ⬇️⬇️⬇️
+                        # ⬇️⬇️⬇️ GÜNCELLENEN KISIM: TARİH SÜTUNU EKLENDİ ⬇️⬇️⬇️
                         cursor.execute('''
                             INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori, tarih)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -108,7 +108,7 @@ def haberleri_cek():
                             kategori,
                             haber.get('date') # CollectAPI'den gelen doğru tarihi kullan
                         ))
-                        # ⬆️⬆️⬆️ BURASI GÜNCELLENDİ (Tarih eklendi) ⬆️⬆️⬆️
+                        # ⬆️⬆️⬆️ GÜNCELLENEN KISIM ⬆️⬆️⬆️
                         eklenen += 1
                     except psycopg2.IntegrityError:
                         conn.rollback()
