@@ -127,9 +127,13 @@ def haberleri_cek():
                 
                 conn.commit()
                 
-                # Eski haberleri sil (7 günden eski)
+                # ✅ GÜNCEL: Eski haberleri sil (kaydedilenleri koru!)
                 silme_tarihi = datetime.now() - timedelta(days=7)
-                cursor.execute('DELETE FROM haberler WHERE tarih < %s', (silme_tarihi,))
+                cursor.execute('''
+                    DELETE FROM haberler 
+                    WHERE tarih < %s 
+                    AND id NOT IN (SELECT haber_id FROM kaydedilenler)
+                ''', (silme_tarihi,))
                 silinen = cursor.rowcount
                 conn.commit()
                 
@@ -137,7 +141,7 @@ def haberleri_cek():
                 conn.close()
                 
                 print(f"  ✅ {eklenen} yeni haber eklendi ({kategori} - {', '.join(ALLOWED_SOURCES)})")
-                print(f"  🗑️  {silinen} eski haber silindi")
+                print(f"  🗑️  {silinen} eski haber silindi (kaydedilenler korundu)")
                 return eklenen
             else:
                 error_message = data.get('message', 'Bilinmeyen API hatası')
@@ -166,7 +170,7 @@ def home():
     return jsonify({
         'app': 'NouvsApp Backend',
         'status': 'running',
-        'version': '3.0 (4-Source Rotation)',
+        'version': '3.1 (ISO Date Format)',
         'database': 'PostgreSQL',
         'description': 'Nouvelles (News) API Service',
         'allowed_sources': ALLOWED_SOURCES,
@@ -189,9 +193,10 @@ def get_haberler():
         conn = get_db()
         cursor = conn.cursor()
         
-        # ✅ FİLTER: Sadece izin verilen kaynaklar
+        # ✅ FİLTER: Sadece izin verilen kaynaklar + TARİH ISO FORMAT
         cursor.execute('''
-            SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, tarih
+            SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, 
+            to_char(tarih, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as tarih
             FROM haberler 
             WHERE kaynak = ANY(%s)
             ORDER BY tarih DESC 
@@ -224,7 +229,8 @@ def get_haber_detay(haber_id):
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, tarih
+            SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, 
+            to_char(tarih, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as tarih
             FROM haberler 
             WHERE id = %s AND kaynak = ANY(%s)
         ''', (haber_id, ALLOWED_SOURCES))
@@ -260,9 +266,10 @@ def get_kategori_haberleri(kategori):
         conn = get_db()
         cursor = conn.cursor()
         
-        # ✅ FİLTER: Sadece izin verilen kaynaklar
+        # ✅ FİLTER: Sadece izin verilen kaynaklar + TARİH ISO FORMAT
         cursor.execute('''
-            SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, tarih
+            SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, 
+            to_char(tarih, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as tarih
             FROM haberler 
             WHERE kategori = %s AND kaynak = ANY(%s)
             ORDER BY tarih DESC 
@@ -378,9 +385,10 @@ if __name__ == '__main__':
         print("📊 Her 1 saatte haber çekiliyor (5 kategori rotasyonu):")
         for i, kat in enumerate(KATEGORILER):
             print(f"    Saat {i % 24} → {kat}")
-        print("🌐 API hazır: /api/haberler (4 kaynak filtered)")
+        print("🌐 API hazır: /api/haberler (4 kaynak filtered, ISO tarih formatı)")
         print("🎯 Manuel çekme: /api/cek-haberler")
         print("✅ UptimeRobot /api/cek-haberler endpoint'ini çekecek")
+        print("📅 Tarih formatı: 2025-11-06T15:28:53Z (ISO 8601)")
         print("\n")
     else:
         print("❌ Veritabanı başlatılamadı!")
