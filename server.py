@@ -15,7 +15,8 @@ CORS(app)
 # ⚙️ AYARLAR
 # ─────────────────────────────────────────────
 
-COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '6QjqaX2e4cRQVH16F3SZZP:1uNWjCyfHX7OZC5OHzbviV')
+# DÜZELTİLDİ: Yeni API anahtarı (7FmauU73yf156Wszw2fTGR:6PeLiyxAGyN8x31F7TO3xH) yedek olarak tanımlandı.
+COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '7FmauU73yf156Wszw2fTGR:6PeLiyxAGyN8x31F7TO3xH')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 # PostgreSQL bağlantısı
@@ -95,7 +96,7 @@ def haberleri_cek():
                 eklenen = 0
                 for haber in haberler:
                     try:
-                        # ⬇️⬇️⬇️ GÜNCELLENEN KISIM: TARİH SÜTUNU EKLENDİ ⬇️⬇️⬇️
+                        # GÜNCEL KISIM: Tarih verisi CollectAPI'den çekiliyor.
                         cursor.execute('''
                             INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori, tarih)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -106,9 +107,8 @@ def haberleri_cek():
                             haber.get('source'),
                             haber.get('url'),
                             kategori,
-                            haber.get('date') # CollectAPI'den gelen doğru tarihi kullan
+                            haber.get('date') 
                         ))
-                        # ⬆️⬆️⬆️ GÜNCELLENEN KISIM ⬆️⬆️⬆️
                         eklenen += 1
                     except psycopg2.IntegrityError:
                         conn.rollback()
