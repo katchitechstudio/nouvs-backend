@@ -19,6 +19,9 @@ CORS(app)
 COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '7FmauU73yf156Wszw2fTGR:6PeLiyxAGyN8x31F7TO3xH')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
+# ✅ YENİ: Sadece bu kaynakları yayınla
+ALLOWED_SOURCES = ['NTV', 'CNN']
+
 # PostgreSQL bağlantısı
 def get_db():
     conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
@@ -46,6 +49,7 @@ def init_db():
         # Hız için indexler
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tarih ON haberler(tarih DESC)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_kategori ON haberler(kategori)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_kaynak ON haberler(kaynak)')
         
         conn.commit()
         cursor.close()
@@ -63,11 +67,11 @@ KATEGORILER = ["general", "sport", "economy", "technology", "health", "entertain
 def haberleri_cek():
     print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Haberler çekiliyor...")
     
-    # Saate göre kategori seç (sıralı rotasyon 0-23 saat)
-    saat = datetime.now().hour
-    kategori = KATEGORILER[saat % len(KATEGORILER)]
+    # ✅ YENİ: Sabit "general" - tüm kategorileri içeriyor
+    kategori = "general"
     
-    print(f"  📂 Kategori: {kategori} (Saat: {saat})")
+    print(f"  📂 Kategori: {kategori} (Tüm kategoriler)")
+    print(f"  🎯 Kaynaklar: {', '.join(ALLOWED_SOURCES)}")
     
     try:
         # CollectAPI'den çek
@@ -84,9 +88,8 @@ def haberleri_cek():
             timeout=10
         )
         
-        # 🔥 KRİTİK TEŞHİS LOGLARI (YENİ EKLENEN KISIM)
+        # 🔥 KRİTİK TEŞHİS LOGLARI
         print(f"COLLECTAPI STATUS: {response.status_code}")
-        # Hata mesajının tamamını görmek için yanıtın ilk 500 karakterini yazdırıyoruz
         print(f"COLLECTAPI RESPONSE: {response.text[:500]}") 
         
         if response.status_code == 200:
@@ -99,9 +102,17 @@ def haberleri_cek():
                 cursor = conn.cursor()
                 
                 eklenen = 0
+                
                 for haber in haberler:
                     try:
-                        # GÜNCEL KISIM: Tarih verisi CollectAPI'den çekiliyor.
+                        # ✅ FİLTER: Sadece izin verilen kaynakları al
+                        kaynak = haber.get('source', '').strip()
+                        
+                        if kaynak not in ALLOWED_SOURCES:
+                            print(f"  ⏭️  Skipped: {kaynak} (izin verilmeyen kaynak)")
+                            continue
+                        
+                        # Tarih verisi CollectAPI'den çekiliyor.
                         cursor.execute('''
                             INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori, tarih)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -109,7 +120,7 @@ def haberleri_cek():
                             haber.get('name'),
                             haber.get('description'),
                             haber.get('image'),
-                            haber.get('source'),
+                            kaynak,
                             haber.get('url'),
                             kategori,
                             haber.get('date') 
@@ -130,7 +141,7 @@ def haberleri_cek():
                 cursor.close()
                 conn.close()
                 
-                print(f"  ✅ {eklenen} yeni haber eklendi")
+                print(f"  ✅ {eklenen} yeni haber eklendi (Sadece NTV + CNN)")
                 print(f"  🗑️  {silinen} eski haber silindi")
                 return eklenen
             else:
@@ -139,12 +150,12 @@ def haberleri_cek():
                 return 0
             
         elif response.status_code == 429:
-            print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı. (Yanıtın ilk 500 karakteri yukarıda)")
+            print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı.")
             time.sleep(60)
             return 0
         
         else:
-            print(f"  ❌ HTTP Hatası: {response.status_code}. (Yanıtın ilk 500 karakteri yukarıda)")
+            print(f"  ❌ HTTP Hatası: {response.status_code}")
             return 0
             
     except requests.exceptions.RequestException as e:
@@ -160,13 +171,14 @@ def home():
     return jsonify({
         'app': 'NouvsApp Backend',
         'status': 'running',
-        'version': '2.2 (Stabil)',
+        'version': '2.3 (NTV + CNN Filter)',
         'database': 'PostgreSQL',
         'description': 'Nouvelles (News) API Service',
+        'allowed_sources': ALLOWED_SOURCES,
         'endpoints': {
-            '/api/haberler': 'Tüm haberleri getir',
+            '/api/haberler': 'Tüm haberleri getir (Sadece NTV + CNN)',
             '/api/haber/<id>': 'Tek haber detayı',
-            '/api/kategori/<kategori>': 'Kategoriye göre haberler',
+            '/api/kategori/<kategori>': 'Kategoriye göre haberler (Sadece NTV + CNN)',
             '/api/cek-haberler': 'Manuel haber çekme (UptimeRobot için)',
             '/health': 'Sağlık kontrolü'
         }
@@ -174,19 +186,21 @@ def home():
 
 @app.route('/api/haberler', methods=['GET'])
 def get_haberler():
-    """Tüm haberleri getir"""
+    """Tüm haberleri getir (Sadece NTV ve CNN)"""
     try:
         limit = request.args.get('limit', 100, type=int)
         
         conn = get_db()
         cursor = conn.cursor()
         
+        # ✅ FİLTER: Sadece izin verilen kaynaklar
         cursor.execute('''
             SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, tarih
             FROM haberler 
+            WHERE kaynak = ANY(%s)
             ORDER BY tarih DESC 
             LIMIT %s
-        ''', (limit,))
+        ''', (ALLOWED_SOURCES, limit))
         
         haberler = cursor.fetchall()
         
@@ -196,6 +210,7 @@ def get_haberler():
         return jsonify({
             'success': True,
             'count': len(haberler),
+            'sources': ALLOWED_SOURCES,
             'haberler': haberler
         })
         
@@ -215,8 +230,8 @@ def get_haber_detay(haber_id):
         cursor.execute('''
             SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, tarih
             FROM haberler 
-            WHERE id = %s
-        ''', (haber_id,))
+            WHERE id = %s AND kaynak = ANY(%s)
+        ''', (haber_id, ALLOWED_SOURCES))
         
         haber = cursor.fetchone()
         
@@ -242,20 +257,21 @@ def get_haber_detay(haber_id):
 
 @app.route('/api/kategori/<kategori>', methods=['GET'])
 def get_kategori_haberleri(kategori):
-    """Kategoriye göre haberler"""
+    """Kategoriye göre haberler (Sadece NTV ve CNN)"""
     try:
         limit = request.args.get('limit', 50, type=int)
         
         conn = get_db()
         cursor = conn.cursor()
         
+        # ✅ FİLTER: Sadece izin verilen kaynaklar
         cursor.execute('''
             SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, tarih
             FROM haberler 
-            WHERE kategori = %s
+            WHERE kategori = %s AND kaynak = ANY(%s)
             ORDER BY tarih DESC 
             LIMIT %s
-        ''', (kategori, limit))
+        ''', (kategori, ALLOWED_SOURCES, limit))
         
         haberler = cursor.fetchall()
         
@@ -265,6 +281,7 @@ def get_kategori_haberleri(kategori):
         return jsonify({
             'success': True,
             'kategori': kategori,
+            'sources': ALLOWED_SOURCES,
             'count': len(haberler),
             'haberler': haberler
         })
@@ -275,7 +292,6 @@ def get_kategori_haberleri(kategori):
             'error': str(e)
         }), 500
 
-# 🔥 YENI: Manuel haber çekme endpoint'i (UptimeRobot için)
 @app.route('/api/cek-haberler', methods=['GET', 'POST'])
 def cek_haberler_manual():
     """Manuel haber çekme - UptimeRobot her saat bunu çekecek"""
@@ -284,8 +300,9 @@ def cek_haberler_manual():
     
     return jsonify({
         'success': True,
-        'message': f'{result} haber eklendi',
+        'message': f'{result} haber eklendi (NTV + CNN)',
         'eklenen': result,
+        'allowed_sources': ALLOWED_SOURCES,
         'timestamp': datetime.now().isoformat()
     })
 
@@ -295,14 +312,28 @@ def health():
     try:
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) as count FROM haberler')
+        
+        # ✅ Sadece izin verilen kaynaklar
+        cursor.execute(
+            'SELECT COUNT(*) as count FROM haberler WHERE kaynak = ANY(%s)',
+            (ALLOWED_SOURCES,)
+        )
         result = cursor.fetchone()
         count = result['count'] if result else 0
         
+        # Kaynak bazlı sayım
+        cursor.execute(
+            'SELECT kaynak, COUNT(*) as count FROM haberler WHERE kaynak = ANY(%s) GROUP BY kaynak',
+            (ALLOWED_SOURCES,)
+        )
+        kaynaklar = {row['kaynak']: row['count'] for row in cursor.fetchall()}
+        
         # Kategori bazlı sayım
-        cursor.execute('SELECT kategori, COUNT(*) as count FROM haberler GROUP BY kategori')
-        rows = cursor.fetchall()
-        kategoriler = {row['kategori']: row['count'] for row in rows}
+        cursor.execute(
+            'SELECT kategori, COUNT(*) as count FROM haberler WHERE kaynak = ANY(%s) GROUP BY kategori',
+            (ALLOWED_SOURCES,)
+        )
+        kategoriler = {row['kategori']: row['count'] for row in cursor.fetchall()}
         
         cursor.close()
         conn.close()
@@ -311,8 +342,10 @@ def health():
             'status': 'healthy',
             'app': 'NouvsApp Backend',
             'database': 'PostgreSQL',
+            'allowed_sources': ALLOWED_SOURCES,
             'timestamp': datetime.now().isoformat(),
             'toplam_haber': count,
+            'kaynaklar': kaynaklar,
             'kategoriler': kategoriler
         })
     except Exception as e:
@@ -327,7 +360,7 @@ if __name__ == '__main__':
         # İlk haberleri çek (uygulama başladığında)
         haberleri_cek()
         
-        # Scheduler başlat (backup olarak, ama Render'da her zaman çalışmaz)
+        # Scheduler başlat (backup olarak)
         try:
             scheduler = BackgroundScheduler()
             scheduler.add_job(
@@ -343,11 +376,12 @@ if __name__ == '__main__':
         
         print("\n🚀 NouvsApp Backend başlatıldı!")
         print("💾 Database: PostgreSQL")
+        print(f"🎯 İzin verilen kaynaklar: {', '.join(ALLOWED_SOURCES)}")
         print("📊 Her 1 saatte haber çekiliyor...")
         print("🔄 Kategoriler sıralı rotasyon:")
         for i, kat in enumerate(KATEGORILER):
             print(f"    Saat {i} → {kat}")
-        print("🌐 API hazır: /api/haberler")
+        print("🌐 API hazır: /api/haberler (NTV + CNN filtered)")
         print("🎯 Manuel çekme: /api/cek-haberler")
         print("✅ UptimeRobot /api/cek-haberler endpoint'ini çekecek")
         print("\n")
