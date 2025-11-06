@@ -84,6 +84,11 @@ def haberleri_cek():
             timeout=10
         )
         
+        # 🔥 KRİTİK TEŞHİS LOGLARI (YENİ EKLENEN KISIM)
+        print(f"COLLECTAPI STATUS: {response.status_code}")
+        # Hata mesajının tamamını görmek için yanıtın ilk 500 karakterini yazdırıyoruz
+        print(f"COLLECTAPI RESPONSE: {response.text[:500]}") 
+        
         if response.status_code == 200:
             data = response.json()
             
@@ -134,12 +139,12 @@ def haberleri_cek():
                 return 0
             
         elif response.status_code == 429:
-            print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı.")
+            print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı. (Yanıtın ilk 500 karakteri yukarıda)")
             time.sleep(60)
             return 0
         
         else:
-            print(f"  ❌ HTTP Hatası: {response.status_code}")
+            print(f"  ❌ HTTP Hatası: {response.status_code}. (Yanıtın ilk 500 karakteri yukarıda)")
             return 0
             
     except requests.exceptions.RequestException as e:
