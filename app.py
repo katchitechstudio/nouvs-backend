@@ -5,6 +5,12 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import logging
 from datetime import datetime
 import os
+import sys # YENİ: sys modülünü dahil et
+
+# KRİTİK DÜZELTME: Python'ın modülleri (models, services, routes) bulabilmesi için
+# projenin kök dizinini arama yoluna (sys.path) ekliyoruz.
+sys.path.append(os.path.dirname(os.path.abspath(__file__))) 
+
 
 # Kendi modüllerimizi import et
 from config import Config
@@ -154,11 +160,12 @@ if __name__ == '__main__':
             scheduler.start()
             logger.info("✅ Scheduler başlatıldı")
         except Exception as e:
-            logger.error(f"⚠️  Scheduler başlatılamadı: {e}")
+            logger.error(f"⚠️  Scheduler başlatılamadı: {e}")
             
         # Sunucuyu başlat (Render/Heroku/Gunicorn için gerekli)
         port = int(os.environ.get('PORT', 5001))
         # KRİTİK: debug=False, Scheduler'ın çift çalışmasını engeller.
         app.run(host='0.0.0.0', port=port, debug=False)
     else:
+
         logger.error("❌ Uygulama veritabanı hatası nedeniyle başlatılamadı.")
