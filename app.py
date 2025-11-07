@@ -5,11 +5,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import logging
 from datetime import datetime
 import os
-import sys # YENİ: sys modülünü dahil et
+import sys
 
-# KRİTİK DÜZELTME: Python'ın modülleri (models, services, routes) bulabilmesi için
-# projenin kök dizinini arama yoluna (sys.path) ekliyoruz.
-sys.path.append(os.path.dirname(os.path.abspath(__file__))) 
+# KRİTİK DÜZELTME V3: 
+# Python'ın modülleri (models, services, routes) bulabilmesi için
+# projenin kök dizinini ve alt dizinlerini arama yoluna (sys.path) ekliyoruz.
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(SRC_DIR) 
+sys.path.append(os.path.join(SRC_DIR, 'models'))
+sys.path.append(os.path.join(SRC_DIR, 'services'))
+sys.path.append(os.path.join(SRC_DIR, 'routes'))
+# -------------------------------------------------------------
 
 
 # Kendi modüllerimizi import et
@@ -160,7 +166,7 @@ if __name__ == '__main__':
             scheduler.start()
             logger.info("✅ Scheduler başlatıldı")
         except Exception as e:
-            logger.error(f"⚠️  Scheduler başlatılamadı: {e}")
+            logger.error(f"⚠️  Scheduler başlatılamadı: {e}")
             
         # Sunucuyu başlat (Render/Heroku/Gunicorn için gerekli)
         port = int(os.environ.get('PORT', 5001))
