@@ -6,9 +6,8 @@ import logging
 from datetime import datetime
 import os
 
-# Kendi modüllerimizi import et
+# Kendi modüllerimizi doğru paket yoluyla import et
 from config import Config
-# DÜZELTME: Klasör yapısına uygun olarak paketten import etme
 from models.currency_models import init_db, get_db
 from services.currency_service import fetch_currencies, fetch_golds, fetch_silvers 
 from services.news_service import haberleri_cek 
@@ -49,10 +48,13 @@ def update_all():
     logger.info(f"✅ FULL UPDATE BİTTİ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"{'='*60}\n")
 
+# ... (Manuel güncelleme rotası aynı kalabilir) ...
+
 @app.route('/api/update', methods=['POST'])
 def manual_update():
     """Manuel güncelleme tetikleyici"""
-    if request.remote_addr != '127.0.0.1' and request.host.split(':')[0] != 'localhost':
+    # Geliştirme ortamı veya yerel sunucu kontrolü
+    if not (request.remote_addr == '127.0.0.1' or request.host.split(':')[0] == 'localhost'):
         return jsonify({'success': False, 'message': 'Erişim reddedildi'}), 403
         
     logger.info("⚡️ Manuel güncelleme isteği alındı...")
@@ -66,19 +68,15 @@ def manual_update():
 # BAŞLANGIÇ
 # ------------------------------------
 
+# Gunicorn / Render bu bloğu görmez, Gunicorn Procfile'dan başlatır.
+# Yerel test için bırakılmıştır.
 if __name__ == '__main__':
-    # Veritabanını başlatmaya çalış (tabloları oluşturur)
     if init_db(): 
-        # İlk veri çekimi
         update_all()
 
         try:
             scheduler = BackgroundScheduler()
-            
-            # Her 1 saatte bir haberler
             scheduler.add_job(func=haberleri_cek, trigger="interval", hours=1, id="haber_job")
-            
-            # Her 60 dakikada bir döviz/altın/gümüş
             scheduler.add_job(
                 func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
                 trigger="interval",
@@ -90,11 +88,7 @@ if __name__ == '__main__':
         except Exception as e:
             logger.error(f"⚠️  Scheduler başlatılamadı: {e}")
             
-        # Sunucuyu başlat (Render/Heroku/Gunicorn için gerekli)
         port = int(os.environ.get('PORT', 5001))
-        
-        # Gunicorn kullanılıyorsa bu kısım çalışmaz, ancak yerel testler için önemlidir.
-        # Render'da Procfile üzerinden Gunicorn'un kendisi başlatılır.
         app.run(host='0.0.0.0', port=port, debug=False)
     else:
         logger.critical("❌ Veritabanı başlatılamadığı için uygulama başlatılmadı.")
