@@ -7,8 +7,9 @@ from datetime import datetime
 import os
 import sys
 
-# Garanti amaçlı sys.path düzeltmelerini bırakıyoruz.
-# Ancak bu düzeltme ile importları noktasız yapıyoruz.
+# KRİTİK DÜZELTME V3: 
+# Python'ın modülleri (models, services, routes) bulabilmesi için
+# projenin kök dizinini ve alt dizinlerini arama yoluna (sys.path) ekliyoruz.
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(SRC_DIR) 
 sys.path.append(os.path.join(SRC_DIR, 'models'))
@@ -18,15 +19,15 @@ sys.path.append(os.path.join(SRC_DIR, 'routes'))
 
 
 # Kendi modüllerimizi DÜZ YAPI İLE import et (KRİTİK DEĞİŞİKLİK)
-# Örneğin: "from models.currency_models" yerine "from currency_models"
+# Klasör adını çıkarmamız gerekiyor: "models.currency_models" yerine "currency_models"
 from config import Config
-from currency_models import init_db, get_db # <-- DEĞİŞTİ!
-from currency_service import fetch_currencies, fetch_golds, fetch_silvers # <-- DEĞİŞTİ!
-from news_service import haberleri_cek # <-- DEĞİŞTİ!
+from currency_models import init_db, get_db 
+from currency_service import fetch_currencies, fetch_golds, fetch_silvers 
+from news_service import haberleri_cek 
 
 # Blueprint (Rota) DÜZ YAPI İLE import et
-from currency_routes import currency_bp # <-- DEĞİŞTİ!
-from news_routes import news_bp # <-- DEĞİŞTİ!
+from currency_routes import currency_bp 
+from news_routes import news_bp 
 
 
 # Logging konfigürasyonu
@@ -45,9 +46,7 @@ app.register_blueprint(news_bp)
 # ------------------------------------
 # SCHEDULER VE YARDIMCI FONKSİYONLAR
 # ------------------------------------
-# ... (Kodun geri kalanı aynı)
-# ...
-# ...
+
 def update_all():
     """Tüm verileri güncelle"""
     logger.info(f"\n{'='*60}")
@@ -62,56 +61,122 @@ def update_all():
     
     logger.info(f"\n✅ FULL UPDATE TAMAMLANDI")
     logger.info(f"{'='*60}\n")
-    
-# ... (Kodun geri kalanı aynı)
-# ...
+
+# ------------------------------------
+# ADMIN UÇ NOKTALARI
+# ------------------------------------
 
 @app.route('/', methods=['GET'])
 def home():
-# ... (Rotalar ve fonksiyonlar aynı)
-# ...
-# ...
+    """Uygulama hakkında bilgi ve endpoint listesi."""
+    return jsonify({
+        'app': 'Nouvs + KuraBak Backend',
+        'status': 'running',
+        'version': '5.0 (Modular & Robust - Gunicorn Ready)',
+        'database': 'PostgreSQL',
+        'services': ['News (Habersel)', 'Currency (KuraBak)'],
+        'endpoints': {
+            'admin': {
+                '/health': 'Sağlık kontrolü',
+                '/api/update': 'Manuel tam güncelleme'
+            },
+            'news': {
+                '/api/haberler': 'Tüm haberleri getir',
+                '/api/kategori/<kategori>': 'Kategoriye göre haberler',
+                '/api/cek-haberler': 'Manuel haber çekme'
+            },
+            'currency': {
+                '/api/currency/all': 'Tüm dövizleri getir',
+                '/api/currency/<code>': 'Tek döviz getir',
+                '/api/gold/all': 'Tüm altın fiyatlarını getir',
+                '/api/silver/all': 'Tüm gümüş fiyatlarını getir'
+            }
+        }
+    })
+
 @app.route('/health', methods=['GET', 'HEAD'])
 def health():
-# ... (Rotalar ve fonksiyonlar aynı)
-# ...
-# ...
+    """Sağlık kontrolü ve Veritabanı veri sayımı."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Tablo varlığını kontrol et (eğer tablo yoksa burası hata verecektir)
+        cursor.execute('SELECT COUNT(*) as count FROM haberler')
+        haberler_count = cursor.fetchone()['count']
+        cursor.execute('SELECT COUNT(*) as count FROM currencies')
+        currency_count = cursor.fetchone()['count']
+        cursor.execute('SELECT COUNT(*) as count FROM golds')
+        gold_count = cursor.fetchone()['count']
+        cursor.execute('SELECT COUNT(*) as count FROM silvers')
+        silver_count = cursor.fetchone()['count']
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'status': 'healthy',
+            'app': 'Nouvs + KuraBak Backend v5.0',
+            'database': 'PostgreSQL',
+            'timestamp': datetime.now().isoformat(),
+            'data': {
+                'haberler_count': haberler_count,
+                'currencies_count': currency_count,
+                'golds_count': gold_count,
+                'silvers_count': silver_count
+            }
+        }), 200
+    except Exception as e:
+        # Bu kısım, DATABASE_URL hatasını yakalar.
+        logger.error(f"❌ Veritabanı bağlantı/tablo hatası: {str(e)}")
+        return jsonify({
+            'status': 'unhealthy',
+            'error': f"Veritabanı bağlantı/tablo hatası (Lütfen DATABASE_URL'i kontrol edin): {str(e)}"
+        }), 500
+
 @app.route('/api/update', methods=['POST'])
 def manual_update():
-# ... (Rotalar ve fonksiyonlar aynı)
-# ...
+    """Manuel tam güncelleme"""
+    try:
+        update_all()
+        return jsonify({'success': True, 'message': 'Full update started'}), 200
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 # ------------------------------------
 # BAŞLANGIÇ
 # ------------------------------------
 
+def start_scheduler():
+    """Uygulama başladıktan sonra scheduler'ı başlatır."""
+    try:
+        scheduler = BackgroundScheduler()
+        
+        # Her 1 saatte bir haberler
+        scheduler.add_job(func=haberleri_cek, trigger="interval", hours=1, id="haber_job")
+        
+        # Her 60 dakikada bir döviz/altın/gümüş
+        scheduler.add_job(
+            func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
+            trigger="interval",
+            minutes=60,
+            id="kurabak_job"
+        )
+        scheduler.start()
+        logger.info("✅ Scheduler başlatıldı")
+    except Exception as e:
+        logger.error(f"⚠️  Scheduler başlatılamadı: {e}")
+
+# Uygulama başlatıldığında çalışacak kod
+if init_db(): 
+    # init_db başarılı olursa, ilk veriyi çek ve scheduler'ı başlat.
+    update_all()
+    start_scheduler()
+else:
+    logger.error("❌ Uygulama veritabanı hatası nedeniyle başlatılamadı.")
+
+
 if __name__ == '__main__':
-    # Veritabanını başlatmaya çalış (tabloları oluşturur)
-    if init_db(): 
-        # İlk veri çekimi
-        update_all()
-
-        try:
-            scheduler = BackgroundScheduler()
-            
-            # Her 1 saatte bir haberler
-            scheduler.add_job(func=haberleri_cek, trigger="interval", hours=1, id="haber_job")
-            
-            # Her 60 dakikada bir döviz/altın/gümüş
-            scheduler.add_job(
-                func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
-                trigger="interval",
-                minutes=60,
-                id="kurabak_job"
-            )
-            scheduler.start()
-            logger.info("✅ Scheduler başlatıldı")
-        except Exception as e:
-            logger.error(f"⚠️  Scheduler başlatılamadı: {e}")
-            
-        # Sunucuyu başlat (Render/Heroku/Gunicorn için gerekli)
-        port = int(os.environ.get('PORT', 5001))
-        # KRİTİK: debug=False, Scheduler'ın çift çalışmasını engeller.
-        app.run(host='0.0.0.0', port=port, debug=False)
-    else:
-
-        logger.error("❌ Uygulama veritabanı hatası nedeniyle başlatılamadı.")
+    # Geliştirme ortamında çalıştırmak için (Render'da bu çalışmayacak)
+    port = int(os.environ.get('PORT', 5001))
+    app.run(host='0.0.0.0', port=port, debug=False)
