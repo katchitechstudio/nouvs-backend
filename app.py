@@ -5,30 +5,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import logging
 from datetime import datetime
 import os
-import sys
 
-# ------------------------------------
-# KRİTİK DÜZELTME: SİSTEM YOLU AYARI
-# Render ortamında alt klasörlerden import yapabilmek için kök dizini sys.path'e ekler.
-# İlk denemede başarısız olsa bile, bu adımı korumak önemlidir.
-# ------------------------------------
-SRC_DIR = os.path.dirname(os.path.abspath(__file__))
-if SRC_DIR not in sys.path:
-    sys.path.append(SRC_DIR)
-
-# ------------------------------------
-# GÜNCELLENMİŞ İMPORTLAR: Doğrudan Dosya Erişimi
-# NOT: Klasör ismi kullanılmadan, dosya adıyla import ediliyor.
-# ------------------------------------
-# 'models' klasöründen import yapmak yerine doğrudan dosyaları import ediyoruz.
+# Kendi modüllerimizi import et
 from config import Config
-from currency_models import init_db, get_db  # 'models.' kaldırıldı
-from currency_service import fetch_currencies, fetch_golds, fetch_silvers # 'services.' kaldırıldı
-from news_service import haberleri_cek # 'services.' kaldırıldı
+# DÜZELTME: Klasör yapısına uygun olarak paketten import etme
+from models.currency_models import init_db, get_db
+from services.currency_service import fetch_currencies, fetch_golds, fetch_silvers 
+from services.news_service import haberleri_cek 
 
-# Blueprint (Rota) İMPORTLARI (Dosya adı üzerinden)
-from currency_routes import currency_bp # 'routes.' kaldırıldı
-from news_routes import news_bp # 'routes.' kaldırıldı
+# Blueprint (Rota) import et
+from routes.currency_routes import currency_bp
+from routes.news_routes import news_bp 
 
 
 # Logging konfigürasyonu
@@ -53,117 +40,22 @@ def update_all():
     logger.info(f"\n{'='*60}")
     logger.info(f"🔄 FULL UPDATE BAŞLANGIÇ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
-    # 1. Haberleri Çek (Saate göre kategori döner)
-    haberleri_cek()
-
-    # 2. Dövizleri Çek
+    # Sırayla çek
     fetch_currencies()
-
-    # 3. Altınları Çek
     fetch_golds()
-    
-    # 4. Gümüşleri Çek
     fetch_silvers()
-
-    logger.info(f"\n✅ FULL UPDATE TAMAMLANDI")
-    logger.info(f"{'='*60}\n")
+    haberleri_cek()
     
-def start_scheduler():
-    """Uygulama başladıktan sonra scheduler'ı başlatır."""
-    try:
-        scheduler = BackgroundScheduler()
-        
-        # Her 1 saatte bir haberler
-        scheduler.add_job(func=haberleri_cek, trigger="interval", hours=1, id="haber_job")
-        
-        # Her 60 dakikada bir döviz/altın/gümüş
-        scheduler.add_job(
-            func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
-            trigger="interval",
-            minutes=60,
-            id="kurabak_job"
-        )
-        scheduler.start()
-        logger.info("✅ Scheduler başlatıldı")
-    except Exception as e:
-        logger.error(f"⚠️ Scheduler başlatılamadı: {e}")
-
-# ------------------------------------
-# ADMIN UÇ NOKTALARI
-# ------------------------------------
-
-@app.route('/', methods=['GET'])
-def home():
-    """Uygulama hakkında bilgi ve endpoint listesi."""
-    return jsonify({
-        'app': 'Nouvs + KuraBak Backend',
-        'status': 'running',
-        'version': '5.0 (Modular & Robust - Gunicorn Ready)',
-        'database': 'PostgreSQL',
-        'services': ['News (Habersel)', 'Currency (KuraBak)'],
-        'endpoints': {
-            'admin': {
-                '/health': 'Sağlık kontrolü',
-                '/api/update': 'Manuel tam güncelleme'
-            },
-            'news': {
-                '/api/haberler': 'Tüm haberleri getir',
-                '/api/kategori/<kategori>': 'Kategoriye göre haberler',
-                '/api/cek-haberler': 'Manuel haber çekme'
-            },
-            'currency': {
-                '/api/currency/all': 'Tüm dövizleri getir',
-                '/api/currency/<code>': 'Tek döviz getir',
-                '/api/gold/all': 'Tüm altın fiyatlarını getir',
-                '/api/silver/all': 'Tüm gümüş fiyatlarını getir'
-            }
-        }
-    })
-
-@app.route('/health', methods=['GET', 'HEAD'])
-def health():
-    """Sağlık kontrolü ve Veritabanı veri sayımı."""
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        # Tablo varlığını kontrol et (eğer tablo yoksa burası hata verecektir)
-        # NOT: cursor.fetchone() ile gelen dict objesi olduğu varsayılmıştır.
-        cursor.execute('SELECT COUNT(*) as count FROM haberler')
-        haberler_count = cursor.fetchone()['count']
-        cursor.execute('SELECT COUNT(*) as count FROM currencies')
-        currency_count = cursor.fetchone()['count']
-        cursor.execute('SELECT COUNT(*) as count FROM golds')
-        gold_count = cursor.fetchone()['count']
-        cursor.execute('SELECT COUNT(*) as count FROM silvers')
-        silver_count = cursor.fetchone()['count']
-        
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            'status': 'healthy',
-            'app': 'Nouvs + KuraBak Backend v5.0',
-            'database': 'PostgreSQL',
-            'timestamp': datetime.now().isoformat(),
-            'data': {
-                'haberler_count': haberler_count,
-                'currencies_count': currency_count,
-                'golds_count': gold_count,
-                'silvers_count': silver_count
-            }
-        }), 200
-    except Exception as e:
-        # Bu kısım, DATABASE_URL hatasını yakalar.
-        logger.error(f"❌ Veritabanı bağlantı/tablo hatası: {str(e)}")
-        return jsonify({
-            'status': 'unhealthy',
-            'error': f"Veritabanı bağlantı/tablo hatası (Lütfen DATABASE_URL'i kontrol edin): {str(e)}"
-        }), 500
+    logger.info(f"✅ FULL UPDATE BİTTİ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"{'='*60}\n")
 
 @app.route('/api/update', methods=['POST'])
 def manual_update():
-    """Manuel tam güncelleme"""
+    """Manuel güncelleme tetikleyici"""
+    if request.remote_addr != '127.0.0.1' and request.host.split(':')[0] != 'localhost':
+        return jsonify({'success': False, 'message': 'Erişim reddedildi'}), 403
+        
+    logger.info("⚡️ Manuel güncelleme isteği alındı...")
     try:
         update_all()
         return jsonify({'success': True, 'message': 'Full update started'}), 200
@@ -171,21 +63,38 @@ def manual_update():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # ------------------------------------
-# BAŞLANGIÇ VE SCHEDULER
+# BAŞLANGIÇ
 # ------------------------------------
 
-# Gunicorn/Render tarafından dosya yüklendiğinde çalışacak kısım:
-if init_db(): 
-    # init_db başarılı olursa, ilk veriyi çek ve scheduler'ı başlat.
-    # Bu blok Gunicorn çalıştırıldığında bir kez çalışır.
-    update_all()
-    start_scheduler()
-else:
-    logger.error("❌ Uygulama veritabanı hatası nedeniyle başlatılamadı.")
-
-
 if __name__ == '__main__':
-    # Geliştirme ortamında çalıştırmak için (Render'da bu çalışmayacak)
-    port = int(os.environ.get('PORT', 5001))
-    # debug=False, Scheduler'ın çift çalışmasını engeller.
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Veritabanını başlatmaya çalış (tabloları oluşturur)
+    if init_db(): 
+        # İlk veri çekimi
+        update_all()
+
+        try:
+            scheduler = BackgroundScheduler()
+            
+            # Her 1 saatte bir haberler
+            scheduler.add_job(func=haberleri_cek, trigger="interval", hours=1, id="haber_job")
+            
+            # Her 60 dakikada bir döviz/altın/gümüş
+            scheduler.add_job(
+                func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
+                trigger="interval",
+                minutes=60,
+                id="kurabak_job"
+            )
+            scheduler.start()
+            logger.info("✅ Scheduler başlatıldı")
+        except Exception as e:
+            logger.error(f"⚠️  Scheduler başlatılamadı: {e}")
+            
+        # Sunucuyu başlat (Render/Heroku/Gunicorn için gerekli)
+        port = int(os.environ.get('PORT', 5001))
+        
+        # Gunicorn kullanılıyorsa bu kısım çalışmaz, ancak yerel testler için önemlidir.
+        # Render'da Procfile üzerinden Gunicorn'un kendisi başlatılır.
+        app.run(host='0.0.0.0', port=port, debug=False)
+    else:
+        logger.critical("❌ Veritabanı başlatılamadığı için uygulama başlatılmadı.")
