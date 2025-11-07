@@ -2,16 +2,20 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from config import Config
-# Düzeltildi: 'models.' paketi kaldırıldı, doğrudan dosya adı üzerinden import edildi.
-from news_models import init_news_tables 
+# KRİTİK DÜZELTME: Paketli Import Geri Getirildi
+from models.news_models import init_news_tables 
 import logging
 
 logger = logging.getLogger(__name__)
 
 def get_db():
     """PostgreSQL bağlantısını döner."""
+    if not Config.DATABASE_URL:
+        logger.error("❌ DATABASE_URL ortam değişkeni ayarlanmamış.")
+        raise ConnectionError("Veritabanı bağlantı adresi eksik.")
+        
     try:
-        # psycop2'nin kabul ettiği URL formatına dönüştürme (Render'ın sağladığı 'postgres://' yerine 'postgresql://' kullanır)
+        # KRİTİK RENDER DÜZELTMESİ: 'postgres://' yerine 'postgresql://' kullanır
         db_url = Config.DATABASE_URL.replace("postgres://", "postgresql://", 1)
         conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
         return conn
@@ -22,6 +26,7 @@ def get_db():
 
 def init_currency_tables(cursor):
     """KuraBak tablolarını oluşturur."""
+    # ... (Diğer tüm tablo oluşturma kodları aynı) ...
     
     # Dövizler
     cursor.execute('''
@@ -108,7 +113,7 @@ def init_currency_tables(cursor):
 def init_db():
     """Tüm veritabanı tablolarını (Haber + Kur) oluşturur."""
     if not Config.DATABASE_URL:
-        logger.error("❌ DATABASE_URL ortam değişkeni ayarlanmamış.")
+        logger.error("❌ DATABASE_URL ortam değişkeni ayarlanmamış. Uygulama başlatılamıyor.")
         return False
         
     try:
