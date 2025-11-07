@@ -2,40 +2,25 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from config import Config
-from models.news_models import init_news_tables
+# Düzeltildi: 'models.' paketi kaldırıldı, doğrudan dosya adı üzerinden import edildi.
+from news_models import init_news_tables 
 import logging
-import os 
-from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
-def get_db() -> Any:
+def get_db():
     """PostgreSQL bağlantısını döner."""
     try:
-        # Bağlantı dizesini loglamak için güvenlik amaçlı şifreyi sansürle
-        db_url = Config.DATABASE_URL
-        if db_url:
-            if '@' in db_url:
-                # Kullanıcı ve şifre kısmını '****' ile değiştir
-                parts = db_url.split('@')
-                user_pass_info = parts[0].split('//')[1]
-                log_url = f"{db_url.split('//')[0]}://{user_pass_info.split(':')[0]}:****@{parts[1]}"
-            else:
-                log_url = db_url
-        else:
-            log_url = "URL Yok"
-
-        logger.info(f"💾 Veritabanına bağlanılıyor... Kullanılan URL (Sansürlü): {log_url}") 
-        
-        # Orijinal URL ile bağlan
+        # psycop2'nin kabul ettiği URL formatına dönüştürme (Render'ın sağladığı 'postgres://' yerine 'postgresql://' kullanır)
+        db_url = Config.DATABASE_URL.replace("postgres://", "postgresql://", 1)
         conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
         return conn
     except Exception as e:
-        logger.error(f"❌ KRİTİK Veritabanı Bağlantı Hatası: {e}")
-        # Bağlantı hatasını yakalayın ve dışarı fırlatın (Render Loglarına net düşmesi için)
-        raise ConnectionError(f"Veritabanı bağlantısı kurulamadı: {e}") 
+        logger.error(f"❌ Veritabanına bağlanılamadı. Hata: {e}")
+        # Bağlantı hatasını yakalayın ve dışarı fırlatın
+        raise ConnectionError("Veritabanı bağlantısı kurulamadı.")
 
-def init_currency_tables(cursor: Any) -> None:
+def init_currency_tables(cursor):
     """KuraBak tablolarını oluşturur."""
     
     # Dövizler
@@ -70,20 +55,20 @@ def init_currency_tables(cursor: Any) -> None:
             updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-
+    
     # Altın Geçmişi
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS gold_history (\
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            rate FLOAT NOT NULL,
+            id SERIAL PRIMARY KEY,\
+            name VARCHAR(100) NOT NULL,\
+            rate FLOAT NOT NULL,\
             timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    
+
     # Gümüşler
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS silvers (\
+        CREATE TABLE IF NOT EXISTS silvers (
             id SERIAL PRIMARY KEY,
             name VARCHAR(100) UNIQUE NOT NULL,
             buying FLOAT NOT NULL,
@@ -96,9 +81,9 @@ def init_currency_tables(cursor: Any) -> None:
     # Gümüş Geçmişi
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS silver_history (\
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL,
-            rate FLOAT NOT NULL,
+            id SERIAL PRIMARY KEY,\
+            name VARCHAR(100) NOT NULL,\
+            rate FLOAT NOT NULL,\
             timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -114,14 +99,18 @@ def init_currency_tables(cursor: Any) -> None:
         )
     ''')
     
-    # Indexler (Performans için)
+    # Indexler
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_currency_code ON currencies(code)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_gold_name ON golds(name)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_silver_name ON silvers(name)')
 
 
-def init_db() -> bool:
+def init_db():
     """Tüm veritabanı tablolarını (Haber + Kur) oluşturur."""
+    if not Config.DATABASE_URL:
+        logger.error("❌ DATABASE_URL ortam değişkeni ayarlanmamış.")
+        return False
+        
     try:
         conn = get_db()
         cursor = conn.cursor()
@@ -135,12 +124,11 @@ def init_db() -> bool:
         conn.commit()
         cursor.close()
         conn.close()
-        logger.info("✅ Veritabanı (Tablolar) başarıyla başlatıldı.")
+        logger.info("✅ Veritabanı tabloları kontrol edildi/oluşturuldu.")
         return True
     except ConnectionError:
-        # get_db() hatası burada yakalanır
-        logger.error("❌ init_db BAŞARISIZ. Veritabanı bağlantısı kurulamadığı için tablolar oluşturulamadı.")
+        # get_db'den gelen özel hata
         return False
     except Exception as e:
-        logger.error(f"❌ init_db sırasında beklenmedik hata: {e}")
+        logger.error(f"❌ Veritabanı başlangıç hatası: {e}")
         return False
