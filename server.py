@@ -10,7 +10,7 @@ import time
 import logging
 
 # Logging konfigürasyonu
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -67,6 +67,7 @@ def init_db():
         cursor = conn.cursor()
         
         # Habersel tablosu
+        # GÜNCELLEME: TIMESTAMP -> TIMESTAMPTZ
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS haberler (
                 id SERIAL PRIMARY KEY,
@@ -76,18 +77,19 @@ def init_db():
                 kaynak TEXT,
                 url TEXT,
                 kategori TEXT,
-                tarih TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                tarih TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
         # KuraBak tabloları
+        # GÜNCELLEME: TIMESTAMP -> TIMESTAMPTZ
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS currencies (
                 id SERIAL PRIMARY KEY,
                 code VARCHAR(10) UNIQUE NOT NULL,
                 name VARCHAR(100) NOT NULL,
                 rate FLOAT NOT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
@@ -98,7 +100,7 @@ def init_db():
                 buying FLOAT NOT NULL,
                 selling FLOAT NOT NULL,
                 rate FLOAT NOT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
@@ -109,7 +111,7 @@ def init_db():
                 buying FLOAT NOT NULL,
                 selling FLOAT NOT NULL,
                 rate FLOAT NOT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
@@ -118,7 +120,7 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 code VARCHAR(10) NOT NULL,
                 rate FLOAT NOT NULL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
@@ -127,7 +129,7 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(100) NOT NULL,
                 rate FLOAT NOT NULL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
@@ -136,7 +138,7 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(100) NOT NULL,
                 rate FLOAT NOT NULL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
@@ -146,7 +148,7 @@ def init_db():
                 update_type VARCHAR(50) NOT NULL,
                 status VARCHAR(20) NOT NULL,
                 message VARCHAR(255),
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
@@ -161,10 +163,10 @@ def init_db():
         conn.commit()
         cursor.close()
         conn.close()
-        print("✅ PostgreSQL veritabanı hazır!")
+        logger.info("✅ PostgreSQL veritabanı hazır!")
         return True
     except Exception as e:
-        print(f"❌ Veritabanı hatası: {e}")
+        logger.error(f"❌ Veritabanı hatası: {e}")
         return False
 
 # ─────────────────────────────────────────────
@@ -173,13 +175,13 @@ def init_db():
 
 def haberleri_cek():
     """CollectAPI'den haberler çek"""
-    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Haberler çekiliyor...")
+    logger.info(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Haberler çekiliyor...")
     
     saat = datetime.now().hour
     kategori = KATEGORILER[saat % len(KATEGORILER)]
     
-    print(f"  📂 Kategori: {kategori}")
-    print(f"  🎯 Kaynaklar: {', '.join(ALLOWED_SOURCES)}")
+    logger.info(f"  📂 Kategori: {kategori}")
+    logger.info(f"  🎯 Kaynaklar: {', '.join(ALLOWED_SOURCES)}")
     
     try:
         response = requests.get(
@@ -207,31 +209,32 @@ def haberleri_cek():
                 eklenen = 0
                 
                 for haber in haberler:
-                    try:
-                        kaynak = haber.get('source', '').strip()
-                        
-                        if kaynak not in ALLOWED_SOURCES:
-                            continue
-                        
-                        cursor.execute('''
-                            INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori, tarih)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        ''', (
-                            haber.get('name'),
-                            haber.get('description'),
-                            haber.get('image'),
-                            kaynak,
-                            haber.get('url'),
-                            kategori,
-                            haber.get('date') 
-                        ))
+                    kaynak = haber.get('source', '').strip()
+                    
+                    if kaynak not in ALLOWED_SOURCES:
+                        continue
+                    
+                    # GÜNCELLEME: try/except yerine ON CONFLICT DO NOTHING kullan
+                    cursor.execute('''
+                        INSERT INTO haberler (baslik, aciklama, gorsel, kaynak, url, kategori, tarih)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (baslik) DO NOTHING
+                    ''', (
+                        haber.get('name'),
+                        haber.get('description'),
+                        haber.get('image'),
+                        kaynak,
+                        haber.get('url'),
+                        kategori,
+                        haber.get('date') 
+                    ))
+                    # Etkilenen satır sayısı 1 ise, yeni eklenmiştir
+                    if cursor.rowcount > 0:
                         eklenen += 1
-                    except psycopg2.IntegrityError:
-                        conn.rollback()
-                        pass
                 
                 conn.commit()
                 
+                # Eski haberleri sil
                 silme_tarihi = datetime.now() - timedelta(days=7)
                 cursor.execute('''
                     DELETE FROM haberler 
@@ -243,18 +246,18 @@ def haberleri_cek():
                 cursor.close()
                 conn.close()
                 
-                print(f"  ✅ {eklenen} yeni haber eklendi")
-                print(f"  🗑️  {silinen} eski haber silindi")
+                logger.info(f"  ✅ {eklenen} yeni haber eklendi")
+                logger.info(f"  🗑️  {silinen} eski haber silindi")
                 return eklenen
             else:
-                print(f"  ❌ API başarısız")
+                logger.warning(f"  ❌ API başarısız: {data.get('message', 'No message')}")
                 return 0
         else:
-            print(f"  ❌ HTTP Hatası: {response.status_code}")
+            logger.error(f"  ❌ HTTP Hatası: {response.status_code}")
             return 0
             
     except Exception as e:
-        print(f"  ❌ Hata: {e}")
+        logger.error(f"  ❌ Hata: {e}")
         return 0
 
 # ─────────────────────────────────────────────
@@ -291,7 +294,7 @@ def _get_try_rate(headers):
 def fetch_currencies():
     """Dövizleri çek ve cache'le"""
     try:
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 💱 Dövizler çekiliyor...")
+        logger.info(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 💱 Dövizler çekiliyor...")
         
         headers = {
             'authorization': f'apikey {COLLECTAPI_TOKEN}'
@@ -302,7 +305,7 @@ def fetch_currencies():
             logger.error("TRY rate couldn't be fetched")
             return False
         
-        print(f"  TRY/USD: {try_rate}")
+        logger.info(f"  TRY/USD: {try_rate}")
         
         url = "https://api.collectapi.com/economy/currencyToAllv1"
         params = {
@@ -322,9 +325,6 @@ def fetch_currencies():
         conn = get_db()
         cursor = conn.cursor()
         
-        # Eski verileri sil
-        cursor.execute('DELETE FROM currencies')
-        
         added = 0
         for item in data.get('result', {}).get('data', []):
             code = item.get('code')
@@ -342,9 +342,14 @@ def fetch_currencies():
             else:
                 final_rate = usd_rate * try_rate_value
             
+            # GÜNCELLEME: DELETE + INSERT yerine ON CONFLICT DO UPDATE kullan
             cursor.execute('''
-                INSERT INTO currencies (code, name, rate)
-                VALUES (%s, %s, %s)
+                INSERT INTO currencies (code, name, rate, updated_at)
+                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (code) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    rate = EXCLUDED.rate,
+                    updated_at = CURRENT_TIMESTAMP
             ''', (code, item.get('name'), final_rate))
             
             # Geçmişe kaydet
@@ -367,7 +372,7 @@ def fetch_currencies():
         cursor.close()
         conn.close()
         
-        print(f"  ✅ {added} döviz eklendi")
+        logger.info(f"  ✅ {added} döviz güncellendi/eklendi")
         return True
         
     except Exception as e:
@@ -377,7 +382,7 @@ def fetch_currencies():
 def fetch_golds():
     """Altınları çek"""
     try:
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🥇 Altınlar çekiliyor...")
+        logger.info(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🥇 Altınlar çekiliyor...")
         
         headers = {
             'authorization': f'apikey {COLLECTAPI_TOKEN}'
@@ -397,8 +402,6 @@ def fetch_golds():
         conn = get_db()
         cursor = conn.cursor()
         
-        cursor.execute('DELETE FROM golds')
-        
         added = 0
         for item in data.get('result', []):
             name = item.get('name')
@@ -406,9 +409,15 @@ def fetch_golds():
             if name not in GOLD_FORMATS:
                 continue
             
+            # GÜNCELLEME: DELETE + INSERT yerine ON CONFLICT DO UPDATE kullan
             cursor.execute('''
-                INSERT INTO golds (name, buying, selling, rate)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO golds (name, buying, selling, rate, updated_at)
+                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (name) DO UPDATE SET
+                    buying = EXCLUDED.buying,
+                    selling = EXCLUDED.selling,
+                    rate = EXCLUDED.rate,
+                    updated_at = CURRENT_TIMESTAMP
             ''', (name, float(item.get('buying', 0)), float(item.get('selling', 0)), float(item.get('rate', 0))))
             
             # Geçmişe kaydet
@@ -430,7 +439,7 @@ def fetch_golds():
         cursor.close()
         conn.close()
         
-        print(f"  ✅ {added} altın eklendi")
+        logger.info(f"  ✅ {added} altın güncellendi/eklendi")
         return True
         
     except Exception as e:
@@ -440,7 +449,7 @@ def fetch_golds():
 def fetch_silvers():
     """Gümüşleri çek"""
     try:
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🥈 Gümüşler çekiliyor...")
+        logger.info(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🥈 Gümüşler çekiliyor...")
         
         headers = {
             'authorization': f'apikey {COLLECTAPI_TOKEN}'
@@ -459,9 +468,7 @@ def fetch_silvers():
         
         conn = get_db()
         cursor = conn.cursor()
-        
-        cursor.execute('DELETE FROM silvers')
-        
+                
         added = 0
         for item in data.get('result', []):
             name = item.get('name')
@@ -469,9 +476,15 @@ def fetch_silvers():
             if name not in SILVER_FORMATS:
                 continue
             
+            # GÜNCELLEME: DELETE + INSERT yerine ON CONFLICT DO UPDATE kullan
             cursor.execute('''
-                INSERT INTO silvers (name, buying, selling, rate)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO silvers (name, buying, selling, rate, updated_at)
+                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (name) DO UPDATE SET
+                    buying = EXCLUDED.buying,
+                    selling = EXCLUDED.selling,
+                    rate = EXCLUDED.rate,
+                    updated_at = CURRENT_TIMESTAMP
             ''', (name, float(item.get('buying', 0)), float(item.get('selling', 0)), float(item.get('rate', 0))))
             
             # Geçmişe kaydet
@@ -493,7 +506,7 @@ def fetch_silvers():
         cursor.close()
         conn.close()
         
-        print(f"  ✅ {added} gümüş eklendi")
+        logger.info(f"  ✅ {added} gümüş güncellendi/eklendi")
         return True
         
     except Exception as e:
@@ -502,17 +515,17 @@ def fetch_silvers():
 
 def update_all():
     """Tüm verileri güncelle"""
-    print(f"\n{'='*60}")
-    print(f"🔄 FULL UPDATE - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info(f"🔄 FULL UPDATE - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"{'='*60}")
     
     haberleri_cek()
     fetch_currencies()
     fetch_golds()
     fetch_silvers()
     
-    print(f"\n✅ Tüm veriler güncellendi!")
-    print(f"{'='*60}\n")
+    logger.info(f"\n✅ Tüm veriler güncellendi!")
+    logger.info(f"{'='*60}\n")
 
 # ─────────────────────────────────────────────
 # 🌐 API ENDPOINTS - HABERSEL
@@ -523,7 +536,7 @@ def home():
     return jsonify({
         'app': 'Nouvs + KuraBak Backend',
         'status': 'running',
-        'version': '4.0 (Integrated)',
+        'version': '4.1 (Integrated & Robust)',
         'database': 'PostgreSQL',
         'services': ['News (Habersel)', 'Currency (KuraBak)'],
         'endpoints': {
@@ -559,6 +572,7 @@ def get_haberler():
         conn = get_db()
         cursor = conn.cursor()
         
+        # GÜNCELLEME: to_char ile ISO 8601 formatına zorla
         cursor.execute('''
             SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, 
             to_char(tarih, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as tarih
@@ -966,7 +980,7 @@ def health():
         
         return jsonify({
             'status': 'healthy',
-            'app': 'Nouvs + KuraBak Backend v4.0',
+            'app': 'Nouvs + KuraBak Backend v4.1',
             'database': 'PostgreSQL',
             'timestamp': datetime.now().isoformat(),
             'data': {
@@ -1006,7 +1020,7 @@ if __name__ == '__main__':
     if init_db():
         # İlk güncelleme
         print("\n🚀 Backend başlatılıyor...")
-        print(f"📦 Version: 4.0 (Integrated)")
+        print(f"📦 Version: 4.1 (Integrated & Robust)")
         print(f"🎯 Services: Habersel + KuraBak")
         
         update_all()
@@ -1043,9 +1057,15 @@ if __name__ == '__main__':
         print("💱 KuraBak: /api/currency/all, /api/gold/all, /api/silver/all")
         print("✅ Sağlık: /health")
         print("\n")
+
+        # === EKLENEN KISIM ===
+        # Sunucuyu başlat
+        # Port'u ortam değişkeninden al (Render, Heroku vb. platformlar için)
+        port = int(os.environ.get('PORT', 5001))
+        
+        # GÜNCELLEME: debug=False, scheduler'ın çift çalışmasını engellemek için KRİTİKTİR.
+        app.run(host='0.0.0.0', port=port, debug=False)
+        # === EKLENEN KISIM SONU ===
+        
     else:
-        print("❌ Veritabanı başlatılamadı!")
-    
-    # Flask'ı başlat
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+        print("❌ Veritabanı başlatılamadı, çıkılıyor...")
