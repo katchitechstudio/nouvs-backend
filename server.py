@@ -7,31 +7,66 @@ from datetime import datetime, timedelta
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import time
+import logging
+
+# Logging konfigürasyonu
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # ─────────────────────────────────────────────
-# ⚙️ AYARLAR
+# ⚙️ AYARLAR - HABERSELv3
 # ─────────────────────────────────────────────
 
-COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '7FmauU73yf156Wszw2fTGR:6PeLiyxAGyN8x31F7TO3xH')
+COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN', '7DO9zDxEEcnOASXEwou6np:0wARGCUrkfYSvQcQaQV3lM')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 # ✅ GÜNCEL: 4 kaliteli kaynak
 ALLOWED_SOURCES = ['NTV', 'CNN', 'Cumhuriyet', 'HaberTürk']
 
-# PostgreSQL bağlantısı
+# ✅ GÜNCEL: 5 kategori rotasyonu
+KATEGORILER = ["general", "economy", "sport", "health", "technology"]
+
+# ─────────────────────────────────────────────
+# ⚙️ AYARLAR - KURABAK
+# ─────────────────────────────────────────────
+
+# Dövizler (20 para)
+CURRENCIES_LIST = [
+    'USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CNY', 'AED', 'SAR', 'KWD', 'CAD',
+    'INR', 'AUD', 'NZD', 'SGD', 'HKD', 'SEK', 'NOK', 'DKK', 'BRL', 'MXN', 'TRY'
+]
+
+# Altın formatları (5)
+GOLD_FORMATS = [
+    'Gram Altın',
+    'Çeyrek Altın',
+    'Yarım Altın',
+    'Tam Altın',
+    'Cumhuriyet Altını'
+]
+
+# Gümüş formatları (1)
+SILVER_FORMATS = ['Gümüş']
+
+# ─────────────────────────────────────────────
+# 🗄️ DATABASE FUNCTIONS
+# ─────────────────────────────────────────────
+
 def get_db():
+    """PostgreSQL bağlantısı"""
     conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
     return conn
 
-# Veritabanı tablosu oluştur
 def init_db():
+    """Veritabanı tablolarını oluştur"""
     try:
         conn = get_db()
         cursor = conn.cursor()
         
+        # Habersel tablosu
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS haberler (
                 id SERIAL PRIMARY KEY,
@@ -45,10 +80,83 @@ def init_db():
             )
         ''')
         
-        # Hız için indexler
+        # KuraBak tabloları
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS currencies (
+                id SERIAL PRIMARY KEY,
+                code VARCHAR(10) UNIQUE NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                rate FLOAT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS golds (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) UNIQUE NOT NULL,
+                buying FLOAT NOT NULL,
+                selling FLOAT NOT NULL,
+                rate FLOAT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS silvers (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) UNIQUE NOT NULL,
+                buying FLOAT NOT NULL,
+                selling FLOAT NOT NULL,
+                rate FLOAT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS currency_history (
+                id SERIAL PRIMARY KEY,
+                code VARCHAR(10) NOT NULL,
+                rate FLOAT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS gold_history (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                rate FLOAT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS silver_history (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                rate FLOAT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS update_logs (
+                id SERIAL PRIMARY KEY,
+                update_type VARCHAR(50) NOT NULL,
+                status VARCHAR(20) NOT NULL,
+                message VARCHAR(255),
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Indexler
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_tarih ON haberler(tarih DESC)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_kategori ON haberler(kategori)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_kaynak ON haberler(kaynak)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_currency_code ON currencies(code)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_gold_name ON golds(name)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_silver_name ON silvers(name)')
         
         conn.commit()
         cursor.close()
@@ -59,22 +167,21 @@ def init_db():
         print(f"❌ Veritabanı hatası: {e}")
         return False
 
-# ✅ GÜNCEL: 5 kategori rotasyonu
-KATEGORILER = ["general", "economy", "sport", "health", "technology"]
+# ─────────────────────────────────────────────
+# 🔄 HABERSEL FUNCTIONS
+# ─────────────────────────────────────────────
 
-# Haberleri API'den çek (5 kategori rotasyonu)
 def haberleri_cek():
+    """CollectAPI'den haberler çek"""
     print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔄 Haberler çekiliyor...")
     
-    # ✅ ROTASYON: Saate göre kategori seç
     saat = datetime.now().hour
     kategori = KATEGORILER[saat % len(KATEGORILER)]
     
-    print(f"  📂 Kategori: {kategori} (Saat {saat}, Rotasyon: {saat % len(KATEGORILER)})")
+    print(f"  📂 Kategori: {kategori}")
     print(f"  🎯 Kaynaklar: {', '.join(ALLOWED_SOURCES)}")
     
     try:
-        # CollectAPI'den çek
         response = requests.get(
             "https://api.collectapi.com/news/getNews",
             headers={
@@ -101,11 +208,9 @@ def haberleri_cek():
                 
                 for haber in haberler:
                     try:
-                        # ✅ FİLTER: Sadece izin verilen kaynakları al
                         kaynak = haber.get('source', '').strip()
                         
                         if kaynak not in ALLOWED_SOURCES:
-                            print(f"    ⏭️  Skipped: {kaynak} (izin verilmeyen kaynak)")
                             continue
                         
                         cursor.execute('''
@@ -123,16 +228,14 @@ def haberleri_cek():
                         eklenen += 1
                     except psycopg2.IntegrityError:
                         conn.rollback()
-                        pass  # Haber zaten var
+                        pass
                 
                 conn.commit()
                 
-                # ✅ GÜNCEL: Eski haberleri sil (kaydedilenleri koru!)
                 silme_tarihi = datetime.now() - timedelta(days=7)
                 cursor.execute('''
                     DELETE FROM haberler 
-                    WHERE tarih < %s 
-                    AND id NOT IN (SELECT haber_id FROM kaydedilenler)
+                    WHERE tarih < %s
                 ''', (silme_tarihi,))
                 silinen = cursor.rowcount
                 conn.commit()
@@ -140,60 +243,322 @@ def haberleri_cek():
                 cursor.close()
                 conn.close()
                 
-                print(f"  ✅ {eklenen} yeni haber eklendi ({kategori} - {', '.join(ALLOWED_SOURCES)})")
-                print(f"  🗑️  {silinen} eski haber silindi (kaydedilenler korundu)")
+                print(f"  ✅ {eklenen} yeni haber eklendi")
+                print(f"  🗑️  {silinen} eski haber silindi")
                 return eklenen
             else:
-                error_message = data.get('message', 'Bilinmeyen API hatası')
-                print(f"  ❌ API başarısız: {error_message}")
+                print(f"  ❌ API başarısız")
                 return 0
-            
-        elif response.status_code == 429:
-            print(f"  ❌ HTTP Hatası: 429 TOO MANY REQUESTS. Rate limit aşıldı.")
-            time.sleep(60)
-            return 0
-        
         else:
             print(f"  ❌ HTTP Hatası: {response.status_code}")
             return 0
             
-    except requests.exceptions.RequestException as e:
-        print(f"  ❌ Ağ/Bağlantı Hatası: {e}")
-        return 0
     except Exception as e:
-        print(f"  ❌ Beklenmedik Hata: {e}")
+        print(f"  ❌ Hata: {e}")
         return 0
 
-# API Endpoints
+# ─────────────────────────────────────────────
+# 💱 KURABAK FUNCTIONS
+# ─────────────────────────────────────────────
+
+def _get_try_rate(headers):
+    """TRY/USD oranını al"""
+    try:
+        url = "https://api.collectapi.com/economy/currencyToAllv1"
+        params = {
+            'base': 'USD',
+            'int': 1
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        if not data.get('success'):
+            return None
+        
+        for item in data.get('result', {}).get('data', []):
+            if item.get('code') == 'TRY':
+                return item.get('rate')
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error getting TRY rate: {str(e)}")
+        return None
+
+def fetch_currencies():
+    """Dövizleri çek ve cache'le"""
+    try:
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 💱 Dövizler çekiliyor...")
+        
+        headers = {
+            'authorization': f'apikey {COLLECTAPI_TOKEN}'
+        }
+        
+        try_rate = _get_try_rate(headers)
+        if not try_rate:
+            logger.error("TRY rate couldn't be fetched")
+            return False
+        
+        print(f"  TRY/USD: {try_rate}")
+        
+        url = "https://api.collectapi.com/economy/currencyToAllv1"
+        params = {
+            'base': 'USD',
+            'int': len(CURRENCIES_LIST)
+        }
+        
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        if not data.get('success'):
+            logger.error(f"CollectAPI error: {data}")
+            return False
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Eski verileri sil
+        cursor.execute('DELETE FROM currencies')
+        
+        added = 0
+        for item in data.get('result', {}).get('data', []):
+            code = item.get('code')
+            
+            if code not in CURRENCIES_LIST:
+                continue
+            
+            usd_rate = float(item.get('rate', 0))
+            try_rate_value = float(try_rate)
+            
+            if code == 'USD':
+                final_rate = try_rate_value
+            elif code == 'TRY':
+                final_rate = 1.0
+            else:
+                final_rate = usd_rate * try_rate_value
+            
+            cursor.execute('''
+                INSERT INTO currencies (code, name, rate)
+                VALUES (%s, %s, %s)
+            ''', (code, item.get('name'), final_rate))
+            
+            # Geçmişe kaydet
+            cursor.execute('''
+                INSERT INTO currency_history (code, rate)
+                VALUES (%s, %s)
+            ''', (code, final_rate))
+            
+            added += 1
+        
+        conn.commit()
+        
+        # Log kaydı
+        cursor.execute('''
+            INSERT INTO update_logs (update_type, status, message)
+            VALUES (%s, %s, %s)
+        ''', ('currency', 'success', f'{added} currencies updated'))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        print(f"  ✅ {added} döviz eklendi")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error fetching currencies: {str(e)}")
+        return False
+
+def fetch_golds():
+    """Altınları çek"""
+    try:
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🥇 Altınlar çekiliyor...")
+        
+        headers = {
+            'authorization': f'apikey {COLLECTAPI_TOKEN}'
+        }
+        
+        url = "https://api.collectapi.com/economy/goldPrice"
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        if not data.get('success'):
+            logger.error(f"CollectAPI error: {data}")
+            return False
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM golds')
+        
+        added = 0
+        for item in data.get('result', []):
+            name = item.get('name')
+            
+            if name not in GOLD_FORMATS:
+                continue
+            
+            cursor.execute('''
+                INSERT INTO golds (name, buying, selling, rate)
+                VALUES (%s, %s, %s, %s)
+            ''', (name, float(item.get('buying', 0)), float(item.get('selling', 0)), float(item.get('rate', 0))))
+            
+            # Geçmişe kaydet
+            cursor.execute('''
+                INSERT INTO gold_history (name, rate)
+                VALUES (%s, %s)
+            ''', (name, float(item.get('rate', 0))))
+            
+            added += 1
+        
+        conn.commit()
+        
+        cursor.execute('''
+            INSERT INTO update_logs (update_type, status, message)
+            VALUES (%s, %s, %s)
+        ''', ('gold', 'success', f'{added} golds updated'))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        print(f"  ✅ {added} altın eklendi")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error fetching golds: {str(e)}")
+        return False
+
+def fetch_silvers():
+    """Gümüşleri çek"""
+    try:
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🥈 Gümüşler çekiliyor...")
+        
+        headers = {
+            'authorization': f'apikey {COLLECTAPI_TOKEN}'
+        }
+        
+        url = "https://api.collectapi.com/economy/silverPrice"
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        if not data.get('success'):
+            logger.error(f"CollectAPI error: {data}")
+            return False
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM silvers')
+        
+        added = 0
+        for item in data.get('result', []):
+            name = item.get('name')
+            
+            if name not in SILVER_FORMATS:
+                continue
+            
+            cursor.execute('''
+                INSERT INTO silvers (name, buying, selling, rate)
+                VALUES (%s, %s, %s, %s)
+            ''', (name, float(item.get('buying', 0)), float(item.get('selling', 0)), float(item.get('rate', 0))))
+            
+            # Geçmişe kaydet
+            cursor.execute('''
+                INSERT INTO silver_history (name, rate)
+                VALUES (%s, %s)
+            ''', (name, float(item.get('rate', 0))))
+            
+            added += 1
+        
+        conn.commit()
+        
+        cursor.execute('''
+            INSERT INTO update_logs (update_type, status, message)
+            VALUES (%s, %s, %s)
+        ''', ('silver', 'success', f'{added} silvers updated'))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        print(f"  ✅ {added} gümüş eklendi")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error fetching silvers: {str(e)}")
+        return False
+
+def update_all():
+    """Tüm verileri güncelle"""
+    print(f"\n{'='*60}")
+    print(f"🔄 FULL UPDATE - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*60}")
+    
+    haberleri_cek()
+    fetch_currencies()
+    fetch_golds()
+    fetch_silvers()
+    
+    print(f"\n✅ Tüm veriler güncellendi!")
+    print(f"{'='*60}\n")
+
+# ─────────────────────────────────────────────
+# 🌐 API ENDPOINTS - HABERSEL
+# ─────────────────────────────────────────────
+
 @app.route('/')
 def home():
     return jsonify({
-        'app': 'NouvsApp Backend',
+        'app': 'Nouvs + KuraBak Backend',
         'status': 'running',
-        'version': '3.1 (ISO Date Format)',
+        'version': '4.0 (Integrated)',
         'database': 'PostgreSQL',
-        'description': 'Nouvelles (News) API Service',
-        'allowed_sources': ALLOWED_SOURCES,
-        'kategoriler': KATEGORILER,
+        'services': ['News (Habersel)', 'Currency (KuraBak)'],
         'endpoints': {
-            '/api/haberler': 'Tüm haberleri getir (Sadece kaliteli 4 kaynak)',
-            '/api/haber/<id>': 'Tek haber detayı',
-            '/api/kategori/<kategori>': 'Kategoriye göre haberler',
-            '/api/cek-haberler': 'Manuel haber çekme',
-            '/health': 'Sağlık kontrolü'
+            'news': {
+                '/api/haberler': 'Tüm haberleri getir',
+                '/api/haber/<id>': 'Tek haber detayı',
+                '/api/kategori/<kategori>': 'Kategoriye göre haberler',
+                '/api/cek-haberler': 'Manuel haber çekme'
+            },
+            'currency': {
+                '/api/currency/all': 'Tüm dövizleri getir',
+                '/api/currency/<code>': 'Tek döviz getir',
+                '/api/currency/history/<code>': 'Döviz geçmişi',
+                '/api/gold/all': 'Tüm altın fiyatlarını getir',
+                '/api/gold/<name>': 'Tek altın formatı getir',
+                '/api/gold/history/<name>': 'Altın geçmişi',
+                '/api/silver/all': 'Tüm gümüş fiyatlarını getir',
+                '/api/silver/history/<name>': 'Gümüş geçmişi'
+            },
+            'admin': {
+                '/health': 'Sağlık kontrolü',
+                '/api/update': 'Manuel tam güncelleme'
+            }
         }
     })
 
 @app.route('/api/haberler', methods=['GET'])
 def get_haberler():
-    """Tüm haberleri getir (Sadece kaliteli 4 kaynak)"""
+    """Tüm haberleri getir"""
     try:
         limit = request.args.get('limit', 100, type=int)
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # ✅ FİLTER: Sadece izin verilen kaynaklar + TARİH ISO FORMAT
         cursor.execute('''
             SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, 
             to_char(tarih, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as tarih
@@ -216,10 +581,7 @@ def get_haberler():
         })
         
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/haber/<int:haber_id>', methods=['GET'])
 def get_haber_detay(haber_id):
@@ -241,32 +603,22 @@ def get_haber_detay(haber_id):
         conn.close()
         
         if haber:
-            return jsonify({
-                'success': True,
-                'haber': haber
-            })
+            return jsonify({'success': True, 'haber': haber})
         else:
-            return jsonify({
-                'success': False,
-                'error': 'Haber bulunamadı'
-            }), 404
+            return jsonify({'success': False, 'error': 'Haber bulunamadı'}), 404
             
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/kategori/<kategori>', methods=['GET'])
 def get_kategori_haberleri(kategori):
-    """Kategoriye göre haberler (Sadece kaliteli 4 kaynak)"""
+    """Kategoriye göre haberler"""
     try:
         limit = request.args.get('limit', 50, type=int)
         
         conn = get_db()
         cursor = conn.cursor()
         
-        # ✅ FİLTER: Sadece izin verilen kaynaklar + TARİH ISO FORMAT
         cursor.execute('''
             SELECT id, baslik, aciklama, gorsel, kaynak, url, kategori, 
             to_char(tarih, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as tarih
@@ -290,25 +642,298 @@ def get_kategori_haberleri(kategori):
         })
         
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/cek-haberler', methods=['GET', 'POST'])
 def cek_haberler_manual():
-    """Manuel haber çekme - UptimeRobot her saat bunu çekecek"""
-    print(f"\n[MANUEL ÇEKİM] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    """Manuel haber çekme"""
     result = haberleri_cek()
     
     return jsonify({
         'success': True,
-        'message': f'{result} haber eklendi (4 kaliteli kaynak)',
+        'message': f'{result} haber eklendi',
         'eklenen': result,
-        'allowed_sources': ALLOWED_SOURCES,
-        'kategoriler': KATEGORILER,
         'timestamp': datetime.now().isoformat()
     })
+
+# ─────────────────────────────────────────────
+# 💱 API ENDPOINTS - KURABAK
+# ─────────────────────────────────────────────
+
+@app.route('/api/currency/all', methods=['GET'])
+def get_all_currencies():
+    """Tüm dövizleri getir"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT code, name, rate, 
+            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+            FROM currencies 
+            ORDER BY code
+        ''')
+        
+        currencies = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        if not currencies:
+            return jsonify({
+                'success': False,
+                'message': 'No currency data available',
+                'data': []
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'count': len(currencies),
+            'data': currencies
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/currency/<code>', methods=['GET'])
+def get_currency(code):
+    """Tek döviz getir"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT code, name, rate,
+            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+            FROM currencies 
+            WHERE code = %s
+        ''', (code.upper(),))
+        
+        currency = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not currency:
+            return jsonify({'success': False, 'message': f'Currency {code} not found'}), 404
+        
+        return jsonify({'success': True, 'data': currency}), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/currency/history/<code>', methods=['GET'])
+def get_currency_history(code):
+    """Döviz geçmişi"""
+    try:
+        days = request.args.get('days', 7, type=int)
+        since = datetime.utcnow() - timedelta(days=days)
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT code, rate,
+            to_char(timestamp, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as timestamp
+            FROM currency_history 
+            WHERE code = %s AND timestamp >= %s
+            ORDER BY timestamp ASC
+        ''', (code.upper(), since))
+        
+        history = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        if not history:
+            return jsonify({
+                'success': False,
+                'message': f'No history found for {code}',
+                'data': []
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'code': code.upper(),
+            'count': len(history),
+            'data': history
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/gold/all', methods=['GET'])
+def get_all_golds():
+    """Tüm altın fiyatlarını getir"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT name, buying, selling, rate,
+            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+            FROM golds 
+            ORDER BY name
+        ''')
+        
+        golds = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        if not golds:
+            return jsonify({
+                'success': False,
+                'message': 'No gold data available',
+                'data': []
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'count': len(golds),
+            'data': golds
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/gold/<name>', methods=['GET'])
+def get_gold(name):
+    """Tek altın formatı getir"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT name, buying, selling, rate,
+            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+            FROM golds 
+            WHERE name = %s
+        ''', (name,))
+        
+        gold = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        
+        if not gold:
+            return jsonify({'success': False, 'message': f'Gold {name} not found'}), 404
+        
+        return jsonify({'success': True, 'data': gold}), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/gold/history/<name>', methods=['GET'])
+def get_gold_history(name):
+    """Altın geçmişi"""
+    try:
+        days = request.args.get('days', 7, type=int)
+        since = datetime.utcnow() - timedelta(days=days)
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT name, rate,
+            to_char(timestamp, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as timestamp
+            FROM gold_history 
+            WHERE name = %s AND timestamp >= %s
+            ORDER BY timestamp ASC
+        ''', (name, since))
+        
+        history = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        if not history:
+            return jsonify({
+                'success': False,
+                'message': f'No history found for {name}',
+                'data': []
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'name': name,
+            'count': len(history),
+            'data': history
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/silver/all', methods=['GET'])
+def get_all_silvers():
+    """Tüm gümüş fiyatlarını getir"""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT name, buying, selling, rate,
+            to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as updated_at
+            FROM silvers 
+            ORDER BY name
+        ''')
+        
+        silvers = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        if not silvers:
+            return jsonify({
+                'success': False,
+                'message': 'No silver data available',
+                'data': []
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'count': len(silvers),
+            'data': silvers
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/silver/history/<name>', methods=['GET'])
+def get_silver_history(name):
+    """Gümüş geçmişi"""
+    try:
+        days = request.args.get('days', 7, type=int)
+        since = datetime.utcnow() - timedelta(days=days)
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT name, rate,
+            to_char(timestamp, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as timestamp
+            FROM silver_history 
+            WHERE name = %s AND timestamp >= %s
+            ORDER BY timestamp ASC
+        ''', (name, since))
+        
+        history = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        if not history:
+            return jsonify({
+                'success': False,
+                'message': f'No history found for {name}',
+                'data': []
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'name': name,
+            'count': len(history),
+            'data': history
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# ─────────────────────────────────────────────
+# 🔧 ADMIN ENDPOINTS
+# ─────────────────────────────────────────────
 
 @app.route('/health', methods=['GET', 'HEAD'])
 def health():
@@ -317,78 +942,106 @@ def health():
         conn = get_db()
         cursor = conn.cursor()
         
-        # ✅ Sadece izin verilen kaynaklar
+        # Haberler
         cursor.execute(
             'SELECT COUNT(*) as count FROM haberler WHERE kaynak = ANY(%s)',
             (ALLOWED_SOURCES,)
         )
-        result = cursor.fetchone()
-        count = result['count'] if result else 0
+        haberler_count = cursor.fetchone()['count']
         
-        # Kaynak bazlı sayım
-        cursor.execute(
-            'SELECT kaynak, COUNT(*) as count FROM haberler WHERE kaynak = ANY(%s) GROUP BY kaynak',
-            (ALLOWED_SOURCES,)
-        )
-        kaynaklar = {row['kaynak']: row['count'] for row in cursor.fetchall()}
+        # Dövizler
+        cursor.execute('SELECT COUNT(*) as count FROM currencies')
+        currency_count = cursor.fetchone()['count']
         
-        # Kategori bazlı sayım
-        cursor.execute(
-            'SELECT kategori, COUNT(*) as count FROM haberler WHERE kaynak = ANY(%s) GROUP BY kategori',
-            (ALLOWED_SOURCES,)
-        )
-        kategoriler = {row['kategori']: row['count'] for row in cursor.fetchall()}
+        # Altınlar
+        cursor.execute('SELECT COUNT(*) as count FROM golds')
+        gold_count = cursor.fetchone()['count']
+        
+        # Gümüşler
+        cursor.execute('SELECT COUNT(*) as count FROM silvers')
+        silver_count = cursor.fetchone()['count']
         
         cursor.close()
         conn.close()
         
         return jsonify({
             'status': 'healthy',
-            'app': 'NouvsApp Backend',
+            'app': 'Nouvs + KuraBak Backend v4.0',
             'database': 'PostgreSQL',
-            'allowed_sources': ALLOWED_SOURCES,
-            'kategoriler': KATEGORILER,
             'timestamp': datetime.now().isoformat(),
-            'toplam_haber': count,
-            'kaynaklar': kaynaklar,
-            'kategoriler_sayim': kategoriler
-        })
+            'data': {
+                'haberler': haberler_count,
+                'currencies': currency_count,
+                'golds': gold_count,
+                'silvers': silver_count
+            }
+        }), 200
     except Exception as e:
         return jsonify({
             'status': 'unhealthy',
             'error': str(e)
         }), 500
 
+@app.route('/api/update', methods=['POST'])
+def manual_update():
+    """Manuel tam güncelleme"""
+    try:
+        update_all()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Full update started',
+            'timestamp': datetime.now().isoformat()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# ─────────────────────────────────────────────
+# 🚀 MAIN
+# ─────────────────────────────────────────────
+
 if __name__ == '__main__':
     # Veritabanını hazırla
     if init_db():
-        # İlk haberleri çek (uygulama başladığında)
-        haberleri_cek()
+        # İlk güncelleme
+        print("\n🚀 Backend başlatılıyor...")
+        print(f"📦 Version: 4.0 (Integrated)")
+        print(f"🎯 Services: Habersel + KuraBak")
         
-        # Scheduler başlat (backup olarak)
+        update_all()
+        
+        # Scheduler başlat
         try:
             scheduler = BackgroundScheduler()
+            
+            # Her 1 saatte bir haberler
             scheduler.add_job(
                 func=haberleri_cek,
                 trigger="interval",
-                hours=1
+                hours=1,
+                id="haber_job"
             )
+            
+            # Her 1 saatte bir dövizler/altın/gümüş (60 dakika)
+            scheduler.add_job(
+                func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
+                trigger="interval",
+                minutes=60,
+                id="kurabak_job"
+            )
+            
             scheduler.start()
-            print("✅ Scheduler başlatıldı (1 saatte bir)")
+            print("✅ Scheduler başlatıldı")
+            print("   - Haberler: Her 1 saatte")
+            print("   - Döviz/Altın/Gümüş: Her 60 dakikada")
         except Exception as e:
             print(f"⚠️  Scheduler başlatılamadı: {e}")
-            print("ℹ️  UptimeRobot /api/cek-haberler endpoint'ini kullanacak")
         
-        print("\n🚀 NouvsApp Backend başlatıldı!")
-        print("💾 Database: PostgreSQL")
-        print(f"🎯 İzin verilen kaynaklar: {', '.join(ALLOWED_SOURCES)}")
-        print("📊 Her 1 saatte haber çekiliyor (5 kategori rotasyonu):")
-        for i, kat in enumerate(KATEGORILER):
-            print(f"    Saat {i % 24} → {kat}")
-        print("🌐 API hazır: /api/haberler (4 kaynak filtered, ISO tarih formatı)")
-        print("🎯 Manuel çekme: /api/cek-haberler")
-        print("✅ UptimeRobot /api/cek-haberler endpoint'ini çekecek")
-        print("📅 Tarih formatı: 2025-11-06T15:28:53Z (ISO 8601)")
+        print("\n🌐 API hazır!")
+        print("📊 Habersel: /api/haberler")
+        print("💱 KuraBak: /api/currency/all, /api/gold/all, /api/silver/all")
+        print("✅ Sağlık: /health")
         print("\n")
     else:
         print("❌ Veritabanı başlatılamadı!")
