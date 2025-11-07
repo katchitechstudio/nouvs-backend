@@ -9,24 +9,26 @@ import sys
 
 # ------------------------------------
 # KRİTİK DÜZELTME: SİSTEM YOLU AYARI
+# Render ortamında alt klasörlerden import yapabilmek için kök dizini sys.path'e ekler.
+# İlk denemede başarısız olsa bile, bu adımı korumak önemlidir.
 # ------------------------------------
-# Python'ın 'models', 'services', 'routes' gibi alt klasörleri paket olarak
-# bulabilmesi için projenin kök dizinini sys.path'e ekliyoruz.
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 if SRC_DIR not in sys.path:
     sys.path.append(SRC_DIR)
 
 # ------------------------------------
-# PAKET BAZLI MODÜL İMPORTLARI (GÜNCEL)
+# GÜNCELLENMİŞ İMPORTLAR: Doğrudan Dosya Erişimi
+# NOT: Klasör ismi kullanılmadan, dosya adıyla import ediliyor.
 # ------------------------------------
+# 'models' klasöründen import yapmak yerine doğrudan dosyaları import ediyoruz.
 from config import Config
-from models.currency_models import init_db, get_db
-from services.currency_service import fetch_currencies, fetch_golds, fetch_silvers
-from services.news_service import haberleri_cek
+from currency_models import init_db, get_db  # 'models.' kaldırıldı
+from currency_service import fetch_currencies, fetch_golds, fetch_silvers # 'services.' kaldırıldı
+from news_service import haberleri_cek # 'services.' kaldırıldı
 
-# Blueprint (Rota) PAKET BAZLI İMPORTLARI (GÜNCEL)
-from routes.currency_routes import currency_bp
-from routes.news_routes import news_bp
+# Blueprint (Rota) İMPORTLARI (Dosya adı üzerinden)
+from currency_routes import currency_bp # 'routes.' kaldırıldı
+from news_routes import news_bp # 'routes.' kaldırıldı
 
 
 # Logging konfigürasyonu
@@ -126,6 +128,7 @@ def health():
         cursor = conn.cursor()
         
         # Tablo varlığını kontrol et (eğer tablo yoksa burası hata verecektir)
+        # NOT: cursor.fetchone() ile gelen dict objesi olduğu varsayılmıştır.
         cursor.execute('SELECT COUNT(*) as count FROM haberler')
         haberler_count = cursor.fetchone()['count']
         cursor.execute('SELECT COUNT(*) as count FROM currencies')
