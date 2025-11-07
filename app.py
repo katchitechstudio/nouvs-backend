@@ -7,27 +7,26 @@ from datetime import datetime
 import os
 import sys
 
-# KRİTİK DÜZELTME V3: 
-# Python'ın modülleri (models, services, routes) bulabilmesi için
-# projenin kök dizinini ve alt dizinlerini arama yoluna (sys.path) ekliyoruz.
+# ------------------------------------
+# KRİTİK DÜZELTME: SİSTEM YOLU AYARI
+# ------------------------------------
+# Python'ın 'models', 'services', 'routes' gibi alt klasörleri paket olarak
+# bulabilmesi için projenin kök dizinini sys.path'e ekliyoruz.
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(SRC_DIR) 
-sys.path.append(os.path.join(SRC_DIR, 'models'))
-sys.path.append(os.path.join(SRC_DIR, 'services'))
-sys.path.append(os.path.join(SRC_DIR, 'routes'))
-# -------------------------------------------------------------
+if SRC_DIR not in sys.path:
+    sys.path.append(SRC_DIR)
 
-
-# Kendi modüllerimizi DÜZ YAPI İLE import et (KRİTİK DEĞİŞİKLİK)
-# Klasör adını çıkarmamız gerekiyor: "models.currency_models" yerine "currency_models"
+# ------------------------------------
+# PAKET BAZLI MODÜL İMPORTLARI (GÜNCEL)
+# ------------------------------------
 from config import Config
-from currency_models import init_db, get_db 
-from currency_service import fetch_currencies, fetch_golds, fetch_silvers 
-from news_service import haberleri_cek 
+from models.currency_models import init_db, get_db
+from services.currency_service import fetch_currencies, fetch_golds, fetch_silvers
+from services.news_service import haberleri_cek
 
-# Blueprint (Rota) DÜZ YAPI İLE import et
-from currency_routes import currency_bp 
-from news_routes import news_bp 
+# Blueprint (Rota) PAKET BAZLI İMPORTLARI (GÜNCEL)
+from routes.currency_routes import currency_bp
+from routes.news_routes import news_bp
 
 
 # Logging konfigürasyonu
@@ -51,16 +50,41 @@ def update_all():
     """Tüm verileri güncelle"""
     logger.info(f"\n{'='*60}")
     logger.info(f"🔄 FULL UPDATE BAŞLANGIÇ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"{'='*60}")
     
-    # Tüm servisleri çağır
+    # 1. Haberleri Çek (Saate göre kategori döner)
     haberleri_cek()
+
+    # 2. Dövizleri Çek
     fetch_currencies()
+
+    # 3. Altınları Çek
     fetch_golds()
-    fetch_silvers()
     
+    # 4. Gümüşleri Çek
+    fetch_silvers()
+
     logger.info(f"\n✅ FULL UPDATE TAMAMLANDI")
     logger.info(f"{'='*60}\n")
+    
+def start_scheduler():
+    """Uygulama başladıktan sonra scheduler'ı başlatır."""
+    try:
+        scheduler = BackgroundScheduler()
+        
+        # Her 1 saatte bir haberler
+        scheduler.add_job(func=haberleri_cek, trigger="interval", hours=1, id="haber_job")
+        
+        # Her 60 dakikada bir döviz/altın/gümüş
+        scheduler.add_job(
+            func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
+            trigger="interval",
+            minutes=60,
+            id="kurabak_job"
+        )
+        scheduler.start()
+        logger.info("✅ Scheduler başlatıldı")
+    except Exception as e:
+        logger.error(f"⚠️ Scheduler başlatılamadı: {e}")
 
 # ------------------------------------
 # ADMIN UÇ NOKTALARI
@@ -144,32 +168,13 @@ def manual_update():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # ------------------------------------
-# BAŞLANGIÇ
+# BAŞLANGIÇ VE SCHEDULER
 # ------------------------------------
 
-def start_scheduler():
-    """Uygulama başladıktan sonra scheduler'ı başlatır."""
-    try:
-        scheduler = BackgroundScheduler()
-        
-        # Her 1 saatte bir haberler
-        scheduler.add_job(func=haberleri_cek, trigger="interval", hours=1, id="haber_job")
-        
-        # Her 60 dakikada bir döviz/altın/gümüş
-        scheduler.add_job(
-            func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
-            trigger="interval",
-            minutes=60,
-            id="kurabak_job"
-        )
-        scheduler.start()
-        logger.info("✅ Scheduler başlatıldı")
-    except Exception as e:
-        logger.error(f"⚠️  Scheduler başlatılamadı: {e}")
-
-# Uygulama başlatıldığında çalışacak kod
+# Gunicorn/Render tarafından dosya yüklendiğinde çalışacak kısım:
 if init_db(): 
     # init_db başarılı olursa, ilk veriyi çek ve scheduler'ı başlat.
+    # Bu blok Gunicorn çalıştırıldığında bir kez çalışır.
     update_all()
     start_scheduler()
 else:
@@ -179,4 +184,5 @@ else:
 if __name__ == '__main__':
     # Geliştirme ortamında çalıştırmak için (Render'da bu çalışmayacak)
     port = int(os.environ.get('PORT', 5001))
+    # debug=False, Scheduler'ın çift çalışmasını engeller.
     app.run(host='0.0.0.0', port=port, debug=False)
