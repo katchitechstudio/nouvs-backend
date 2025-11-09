@@ -8,15 +8,38 @@ class Config:
     
     # CollectAPI Token'ı
     COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN')
-
+    
     # Habersel Ayarları
     ALLOWED_SOURCES = ['NTV', 'CNN', 'Cumhuriyet', 'HaberTürk']
     KATEGORILER = ["general", "economy", "sport", "health", "technology"]
     
-    # KuraBak Ayarları
+    # KuraBak Ayarları - SADECE 15 DÖVİZ
     CURRENCIES_LIST = [
-        'USD', 'EUR', 'GBP', 'JPY', 'CHF', 'CNY', 'AED', 'SAR', 'KWD', 'CAD',
-        'INR', 'AUD', 'NZD', 'SGD', 'HKD', 'SEK', 'NOK', 'DKK', 'BRL', 'MXN', 'TRY'
+        'USD',  # 🇺🇸 Amerikan Doları
+        'EUR',  # 🇪🇺 Euro
+        'JPY',  # 🇯🇵 Japon Yeni
+        'GBP',  # 🇬🇧 İngiliz Sterlini
+        'CNY',  # 🇨🇳 Çin Yuanı
+        'CHF',  # 🇨🇭 İsviçre Frangı
+        'CAD',  # 🇨🇦 Kanada Doları
+        'AUD',  # 🇦🇺 Avustralya Doları
+        'NZD',  # 🇳🇿 Yeni Zelanda Doları
+        'SGD',  # 🇸🇬 Singapur Doları
+        'HKD',  # 🇭🇰 Hong Kong Doları
+        'SEK',  # 🇸🇪 İsveç Kronu
+        'KRW',  # 🇰🇷 Güney Kore Wonu
+        'NOK',  # 🇳🇴 Norveç Kronu
+        'INR'   # 🇮🇳 Hindistan Rupisi
     ]
-    GOLD_FORMATS = ['Gram Altın', 'Çeyrek Altın', 'Yarım Altın', 'Tam Altın', 'Cumhuriyet Altını']
+    
+    # ALTIN FORMATLARI
+    GOLD_FORMATS = [
+        'Gram Altın',
+        'Çeyrek Altın',
+        'Yarım Altın',
+        'Tam Altın',
+        'Cumhuriyet Altını'
+    ]
+    
+    # GÜMÜŞ FORMATLARI
     SILVER_FORMATS = ['Gümüş']
