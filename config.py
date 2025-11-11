@@ -1,45 +1,71 @@
 import os
 
 class Config:
-    """Uygulama Ayarları"""
+    """Backend genel ayarları"""
     
-    # Veritabanı URL'si (Render/Heroku ortam değişkenlerinden alır)
-    DATABASE_URL = os.environ.get('DATABASE_URL')
-    
-    # CollectAPI Token'ı
-    COLLECTAPI_TOKEN = os.environ.get('COLLECTAPI_TOKEN')
-    
-    # Habersel Ayarları
-    ALLOWED_SOURCES = ['NTV', 'CNN', 'Cumhuriyet', 'HaberTürk']
+    # ======================================
+    # DATABASE
+    # ======================================
+    DB_HOST = os.environ.get("DB_HOST", "localhost")
+    DB_PORT = os.environ.get("DB_PORT", "5432")
+    DB_USER = os.environ.get("DB_USER", "postgres")
+    DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
+    DB_NAME = os.environ.get("DB_NAME", "habersel")
+
+    # Eğer Render/Heroku DATABASE_URL veriyorsa override et
+    DATABASE_URL = os.environ.get("DATABASE_URL")
+
+    # ======================================
+    # CollectAPI Token
+    # ======================================
+    COLLECTAPI_TOKEN = os.environ.get("COLLECTAPI_TOKEN")
+
+    # ======================================
+    # HABERSEL (News) Ayarları
+    # ======================================
+    ALLOWED_SOURCES = ["NTV", "CNN", "Cumhuriyet", "HaberTürk"]
     KATEGORILER = ["general", "economy", "sport", "health", "technology"]
-    
-    # KuraBak Ayarları - SADECE 15 DÖVİZ
+
+    # ======================================
+    # Döviz (Currency) Ayarları
+    # Sadece 15 döviz işlenecek
+    # ======================================
     CURRENCIES_LIST = [
-        'USD',  # 🇺🇸 Amerikan Doları
-        'EUR',  # 🇪🇺 Euro
-        'JPY',  # 🇯🇵 Japon Yeni
-        'GBP',  # 🇬🇧 İngiliz Sterlini
-        'CNY',  # 🇨🇳 Çin Yuanı
-        'CHF',  # 🇨🇭 İsviçre Frangı
-        'CAD',  # 🇨🇦 Kanada Doları
-        'AUD',  # 🇦🇺 Avustralya Doları
-        'NZD',  # 🇳🇿 Yeni Zelanda Doları
-        'SGD',  # 🇸🇬 Singapur Doları
-        'HKD',  # 🇭🇰 Hong Kong Doları
-        'SEK',  # 🇸🇪 İsveç Kronu
-        'KRW',  # 🇰🇷 Güney Kore Wonu
-        'NOK',  # 🇳🇴 Norveç Kronu
-        'INR'   # 🇮🇳 Hindistan Rupisi
+        'USD',
+        'EUR',
+        'JPY',
+        'GBP',
+        'CNY',
+        'CHF',
+        'CAD',
+        'AUD',
+        'NZD',
+        'SGD',
+        'HKD',
+        'SEK',
+        'KRW',
+        'NOK',
+        'INR'
     ]
-    
+
+    # ======================================
     # ALTIN FORMATLARI
+    # CollectAPI goldPrice → çok fazla çeşit döndürür
+    # Bunlar KuraBak için yeterlidir
+    # ======================================
     GOLD_FORMATS = [
-        'Gram Altın',
-        'Çeyrek Altın',
-        'Yarım Altın',
-        'Tam Altın',
-        'Cumhuriyet Altını'
+        "Gram Altın",
+        "ONS Altın",
+        "Çeyrek Altın",
+        "Yarım Altın",
+        "Tam Altın",
+        "Cumhuriyet Altını",
+        "Has Altın",
+        "Ziynet Altın",
+        "Reşat Lira Altın"
     ]
-    
-    # GÜMÜŞ FORMATLARI
-    SILVER_FORMATS = ['Gümüş']
+
+    # ======================================
+    # GÜMÜŞ FORMATLARI (Sadece 1 tane)
+    # ======================================
+    SILVER_FORMATS = ["Gümüş"]
