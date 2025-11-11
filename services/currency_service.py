@@ -19,48 +19,46 @@ def fetch_currencies():
         r.raise_for_status()
         data = r.json()
 
-        # ✅ API success kontrolü
         if not data.get("success"):
             logger.error(f"API hata: {data}")
             return False
 
-        # ✅ Gerçek format: result → LIST
         items = data.get("result", [])
 
         if not isinstance(items, list) or len(items) == 0:
-            logger.error("API döviz listesi boş veya hatalı.")
+            logger.error("API döviz listesi boş.")
             return False
 
-        # ✅ USD → TRY ORANI BUL
-        usd_try = None
-        for row in items:
-            if row.get("code") == "TRY":
-                try:
-                    usd_try = float(row.get("rate"))
-                except:
-                    usd_try = None
+        # ✅ TRY var mı kontrol et
+        try_value = None
+        for x in items:
+            if x.get("code") == "TRY":
+                try_value = float(x.get("rate"))
                 break
 
-        if not usd_try:
-            logger.error("TRY oranı bulunamadı.")
-            return False
+        if try_value:
+            logger.info(f"✅ TRY bulundu → {try_value}")
+        else:
+            logger.warning("⚠️ TRY bulunamadı → USD bazlı hesaplama kullanılacak")
 
         conn = get_db()
         cur = conn.cursor()
         added = 0
 
-        # ✅ TÜM DÖVİZLERİ İŞLE
         for row in items:
             code = row.get("code")
             name = row.get("name")
 
             try:
-                rate_usd_to_x = float(row.get("rate"))
+                rate_raw = float(row.get("rate"))
             except:
                 continue
 
-            # ✅ Oranı 1 TRY bazlı hesapla
-            final_rate = rate_usd_to_x / usd_try
+            # ✅ TRY yoksa direk kullan
+            if try_value:
+                final_rate = rate_raw / try_value
+            else:
+                final_rate = rate_raw  # fallback
 
             cur.execute("""
                 INSERT INTO currencies (code, name, rate, updated_at)
