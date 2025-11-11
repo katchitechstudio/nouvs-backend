@@ -5,43 +5,62 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
+
 def fetch_currencies():
     try:
         logger.info("💱 Dövizler çekiliyor...")
 
-        headers = {'authorization': f'apikey {Config.COLLECTAPI_TOKEN}'}
+        headers = {
+            'authorization': f'apikey {Config.COLLECTAPI_TOKEN}'
+        }
         url = "https://api.collectapi.com/economy/allCurrency"
 
         r = requests.get(url, headers=headers, timeout=10)
         r.raise_for_status()
         data = r.json()
 
+        # ✅ API success kontrolü
         if not data.get("success"):
             logger.error(f"API hata: {data}")
             return False
 
-        items = data["result"]["data"]
+        # ✅ Gerçek format: result → LIST
+        items = data.get("result", [])
 
-        # USD → TRY bul
+        if not isinstance(items, list) or len(items) == 0:
+            logger.error("API döviz listesi boş veya hatalı.")
+            return False
+
+        # ✅ USD → TRY ORANI BUL
         usd_try = None
         for row in items:
-            if row["code"] == "TRY":
-                usd_try = float(row["rate"])
+            if row.get("code") == "TRY":
+                try:
+                    usd_try = float(row.get("rate"))
+                except:
+                    usd_try = None
                 break
 
         if not usd_try:
-            logger.error("TRY bulunamadı.")
+            logger.error("TRY oranı bulunamadı.")
             return False
 
         conn = get_db()
         cur = conn.cursor()
         added = 0
 
+        # ✅ TÜM DÖVİZLERİ İŞLE
         for row in items:
-            code = row["code"]
-            name = row["name"]
-            rate_usd_to_x = float(row["rate"])
-            final_rate = rate_usd_to_x / usd_try  
+            code = row.get("code")
+            name = row.get("name")
+
+            try:
+                rate_usd_to_x = float(row.get("rate"))
+            except:
+                continue
+
+            # ✅ Oranı 1 TRY bazlı hesapla
+            final_rate = rate_usd_to_x / usd_try
 
             cur.execute("""
                 INSERT INTO currencies (code, name, rate, updated_at)
@@ -52,8 +71,11 @@ def fetch_currencies():
                     updated_at=CURRENT_TIMESTAMP
             """, (code, name, final_rate))
 
-            cur.execute("""INSERT INTO currency_history (code, rate) VALUES (%s, %s)""",
-                        (code, final_rate))
+            cur.execute("""
+                INSERT INTO currency_history (code, rate)
+                VALUES (%s, %s)
+            """, (code, final_rate))
+
             added += 1
 
         conn.commit()
