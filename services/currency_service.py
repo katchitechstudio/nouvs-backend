@@ -27,9 +27,9 @@ def fetch_currencies():
         logger.info(f"💱 Dövizler çekiliyor...")
         headers = {'authorization': f'apikey {Config.COLLECTAPI_TOKEN}'}
         
-        # ✅ YENİ API: base=TRY kullan
-        url = "https://api.collectapi.com/economy/currencyToAll"  # v1 kaldırıldı
-        params = {'base': 'TRY', 'int': 1}  # 1 TRY miktar
+        # ✅ YENİ API: base=TRY, int=10 kullan
+        url = "https://api.collectapi.com/economy/currencyToAll"
+        params = {'base': 'TRY', 'int': 10}  # ✅ 10 TRY miktar
         
         response = requests.get(url, headers=headers, params=params, timeout=10)
         response.raise_for_status()
@@ -44,26 +44,26 @@ def fetch_currencies():
         added = 0
         
         # ✅ LOG: İlk 3 veriyi göster
-        logger.info("📊 API'den gelen ilk 3 veri:")
+        logger.info("📊 API'den gelen ilk 3 veri (10 TRY bazlı):")
         for item in data.get('result', {}).get('data', [])[:3]:
             code = item.get('code')
             rate = item.get('rate')
-            final = 1.0 / rate if rate > 0 else 0
-            logger.info(f"  {code}: rate={rate:.6f} → TRY={final:.4f}")
+            final = 10.0 / rate if rate > 0 else 0
+            logger.info(f"  {code}: rate={rate:.6f} → 1 {code} = {final:.4f} ₺")
         
         for item in data.get('result', {}).get('data', []):
             code = item.get('code')
             if code not in Config.CURRENCIES_LIST: 
                 continue
             
-            # ✅ BASİT FORMÜL: 1 TRY = rate Currency
-            # Dolayısıyla: 1 Currency = (1 / rate) TRY
+            # ✅ FORMÜL: 10 TRY = rate Currency
+            # Dolayısıyla: 1 Currency = (10 / rate) TRY
             rate = float(item.get('rate', 0))
             if rate <= 0:
                 logger.warning(f"⚠️ {code} için geçersiz rate: {rate}")
                 continue
                 
-            final_rate = 1.0 / rate
+            final_rate = 10.0 / rate
             
             # Atomik Kayıt/Güncelleme
             cursor.execute('''
@@ -185,4 +185,4 @@ def fetch_silvers():
     except Exception as e:
         logger.error(f"Gümüş çekme hatası: {str(e)}")
         _log_update('silver', 'error', f'Çekme hatası: {e}')
-        return False 
+        return False
