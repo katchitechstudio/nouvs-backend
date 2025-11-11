@@ -21,37 +21,16 @@ def _log_update(update_type, status, message):
     except Exception as e:
         logger.error(f"Log kaydı yapılamadı: {e}")
 
-def _get_try_rate(headers):
-    """USD'den TRY oranını CollectAPI'den alır."""
-    try:
-        url = "https://api.collectapi.com/economy/currencyToAllv1"
-        params = {'base': 'USD', 'int': 1}
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        if not data.get('success'): 
-            return None
-        for item in data.get('result', {}).get('data', []):
-            if item.get('code') == 'TRY': 
-                return item.get('rate')
-        return None
-    except Exception as e:
-        logger.error(f"TRY rate çekilemedi: {str(e)}")
-        _log_update('currency_base', 'error', f'TRY rate çekilemedi: {e}')
-        return None
-
 def fetch_currencies():
     """Dövizleri çeker ve veritabanına kaydeder."""
     try:
         logger.info(f"💱 Dövizler çekiliyor...")
         headers = {'authorization': f'apikey {Config.COLLECTAPI_TOKEN}'}
-        try_rate = _get_try_rate(headers)
-        if not try_rate: 
-            logger.warning("TRY rate alınamadı")
-            return False
-
-        url = "https://api.collectapi.com/economy/currencyToAllv1"
-        params = {'base': 'USD', 'int': len(Config.CURRENCIES_LIST)}
+        
+        # ✅ YENİ API: base=TRY kullan
+        url = "https://api.collectapi.com/economy/currencyToAll"  # v1 kaldırıldı
+        params = {'base': 'TRY', 'int': 0}  # TRY bazlı, normal yön
+        
         response = requests.get(url, headers=headers, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
@@ -64,15 +43,27 @@ def fetch_currencies():
         cursor = conn.cursor()
         added = 0
         
+        # ✅ LOG: İlk 3 veriyi göster
+        logger.info("📊 API'den gelen ilk 3 veri:")
+        for item in data.get('result', {}).get('data', [])[:3]:
+            code = item.get('code')
+            rate = item.get('rate')
+            final = 1.0 / rate if rate > 0 else 0
+            logger.info(f"  {code}: rate={rate:.6f} → TRY={final:.4f}")
+        
         for item in data.get('result', {}).get('data', []):
             code = item.get('code')
             if code not in Config.CURRENCIES_LIST: 
                 continue
             
-            usd_rate = float(item.get('rate', 0))
-            try_rate_value = float(try_rate)
-            # TRY bazlı oranı hesapla
-            final_rate = try_rate_value if code == 'USD' else (1.0 if code == 'TRY' else usd_rate * try_rate_value)
+            # ✅ BASİT FORMÜL: 1 TRY = rate Currency
+            # Dolayısıyla: 1 Currency = (1 / rate) TRY
+            rate = float(item.get('rate', 0))
+            if rate <= 0:
+                logger.warning(f"⚠️ {code} için geçersiz rate: {rate}")
+                continue
+                
+            final_rate = 1.0 / rate
             
             # Atomik Kayıt/Güncelleme
             cursor.execute('''
