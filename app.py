@@ -1,32 +1,12 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 from flask_cors import CORS
 from apscheduler.schedulers.background import BackgroundScheduler
 import logging
 from datetime import datetime
 import os
-import sys
 
 # ==========================================
-# SYS.PATH SETUP - Modülleri bulmak için
-# ==========================================
-SRC_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, SRC_DIR)  # app.py'nin bulunduğu klasör
-sys.path.insert(0, os.path.join(SRC_DIR, 'models'))
-sys.path.insert(0, os.path.join(SRC_DIR, 'services'))
-sys.path.insert(0, os.path.join(SRC_DIR, 'routes'))
-
-# ==========================================
-# İMPORTLAR - Düz yapı (models. yok!)
-# ==========================================
-from config import Config
-from currency_models import init_db, get_db
-from currency_service import fetch_currencies, fetch_golds, fetch_silvers
-from news_service import haberleri_cek
-from currency_routes import currency_bp
-from news_routes import news_bp
-
-# ==========================================
-# LOGGING SETUP
+# LOGGING
 # ==========================================
 logging.basicConfig(
     level=logging.INFO,
@@ -35,180 +15,152 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==========================================
-# FLASK APP SETUP
+# IMPORTS (Artık temiz mimari)
+# ==========================================
+from config import Config
+
+from services.currency_service import fetch_currencies
+from services.gold_service import fetch_golds
+from services.silver_service import fetch_silvers
+from services.news_service import haberleri_cek
+
+from routes.currency_routes import currency_bp
+from routes.gold_routes import gold_bp
+from routes.silver_routes import silver_bp
+from routes.news_routes import news_bp
+
+from models.db import get_db, put_db
+
+# ==========================================
+# FLASK APP
 # ==========================================
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Blueprint'leri kaydet
+# Blueprint register
 app.register_blueprint(currency_bp)
+app.register_blueprint(gold_bp)
+app.register_blueprint(silver_bp)
 app.register_blueprint(news_bp)
 
 # ==========================================
-# SCHEDULER VE YARDIMCI FONKSİYONLAR
+# UPDATE MANAGER
 # ==========================================
-
 def update_all():
-    """Tüm verileri güncelle"""
-    logger.info(f"\n{'='*60}")
-    logger.info(f"🔄 FULL UPDATE BAŞLANGIÇ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"{'='*60}")
-    
+    logger.info("\n================ FULL UPDATE ================\n")
+
     try:
         haberleri_cek()
     except Exception as e:
-        logger.error(f"❌ Haber çekme hatası: {e}")
-    
+        logger.error(f"Haber hatası → {e}")
+
     try:
         fetch_currencies()
     except Exception as e:
-        logger.error(f"❌ Döviz çekme hatası: {e}")
-    
+        logger.error(f"Döviz hatası → {e}")
+
     try:
         fetch_golds()
     except Exception as e:
-        logger.error(f"❌ Altın çekme hatası: {e}")
-    
+        logger.error(f"Altın hatası → {e}")
+
     try:
         fetch_silvers()
     except Exception as e:
-        logger.error(f"❌ Gümüş çekme hatası: {e}")
-    
-    logger.info(f"\n✅ FULL UPDATE TAMAMLANDI")
-    logger.info(f"{'='*60}\n")
+        logger.error(f"Gümüş hatası → {e}")
 
+    logger.info("\n✅ FULL UPDATE TAMAMLANDI\n")
+
+
+# ==========================================
+# SCHEDULER
+# ==========================================
 def init_scheduler():
-    """Scheduler'ı başlat (Gunicorn için)"""
     try:
         scheduler = BackgroundScheduler()
-        
-        # Her 1 saatte bir haberler
-        scheduler.add_job(
-            func=haberleri_cek,
-            trigger="interval",
-            hours=1,
-            id="haber_job"
-        )
-        
-        # Her 60 dakikada bir döviz/altın/gümüş
-        scheduler.add_job(
-            func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
-            trigger="interval",
-            minutes=60,
-            id="kurabak_job"
-        )
-        
+
+        scheduler.add_job(haberleri_cek, "interval", hours=1, id="haber_job")
+        scheduler.add_job(update_all, "interval", minutes=60, id="finance_job")
+
         scheduler.start()
-        logger.info("✅ Scheduler başlatıldı (her 60 dakikada otomatik güncelleme)")
+        logger.info("✅ Scheduler başlatıldı.")
     except Exception as e:
-        logger.error(f"⚠️ Scheduler başlatma hatası: {e}")
+        logger.error(f"Scheduler hata: {e}")
+
 
 # ==========================================
-# ✅ UYGULAMA BAŞLATMA (GUNICORN İÇİN)
+# STARTUP
 # ==========================================
-logger.info("🚀 Uygulama başlatılıyor...")
+logger.info("🚀 Backend başlatılıyor...")
 
-# Veritabanını başlat
-if init_db():
-    logger.info("✅ Veritabanı hazır!")
-    
-    # İlk veri çekimi
-    try:
-        logger.info("📥 İlk veri çekimi başlıyor...")
-        update_all()
-    except Exception as e:
-        logger.warning(f"⚠️ İlk veri çekimi sırasında sorun: {e}")
-    
-    # Scheduler'ı başlat
-    init_scheduler()
-else:
-    logger.error("❌ Veritabanı başlatılamadı!")
+try:
+    update_all()
+except Exception as e:
+    logger.warning(f"İlk güncelleme sorunlu: {e}")
+
+init_scheduler()
+
 
 # ==========================================
-# ADMIN UÇNOKTALARI
+# ENDPOINTS
 # ==========================================
-
-@app.route('/', methods=['GET'])
+@app.route("/", methods=["GET"])
 def home():
-    """Uygulama hakkında bilgi ve endpoint listesi."""
     return jsonify({
-        'app': 'Habersel + KuraBak Backend',
-        'status': 'running',
-        'version': '6.0 (Stable & Production)',
-        'database': 'PostgreSQL',
-        'services': ['News (Habersel)', 'Currency (KuraBak)'],
-        'endpoints': {
-            'admin': {
-                '/health': 'Sağlık kontrolü',
-                '/api/update': 'Manuel tam güncelleme'
-            },
-            'news': {
-                '/api/haberler': 'Tüm haberleri getir',
-                '/api/kategori/<kategori>': 'Kategoriye göre haberler',
-                '/api/cek-haberler': 'Manuel haber çekme'
-            },
-            'currency': {
-                '/api/currency/all': 'Tüm dövizleri getir',
-                '/api/currency/<code>': 'Tek döviz getir',
-                '/api/currency/history/<code>': 'Döviz geçmişi',
-                '/api/currency/gold/all': 'Tüm altın fiyatlarını getir',
-                '/api/currency/silver/all': 'Tüm gümüş fiyatlarını getir'
-            }
-        }
+        "app": "Habersel + KuraBak Backend",
+        "status": "running",
+        "version": "7.0",
+        "database": "PostgreSQL",
+        "timestamp": datetime.now().isoformat()
     })
 
-@app.route('/health', methods=['GET', 'HEAD'])
+
+@app.route("/health", methods=["GET"])
 def health():
-    """Sağlık kontrolü ve Veritabanı veri sayımı."""
     try:
         conn = get_db()
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT COUNT(*) as count FROM haberler')
-        haberler_count = cursor.fetchone()['count']
-        cursor.execute('SELECT COUNT(*) as count FROM currencies')
-        currency_count = cursor.fetchone()['count']
-        cursor.execute('SELECT COUNT(*) as count FROM golds')
-        gold_count = cursor.fetchone()['count']
-        cursor.execute('SELECT COUNT(*) as count FROM silvers')
-        silver_count = cursor.fetchone()['count']
-        
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            'status': 'healthy',
-            'app': 'Habersel + KuraBak Backend v6.0',
-            'database': 'PostgreSQL',
-            'timestamp': datetime.now().isoformat(),
-            'data': {
-                'haberler_count': haberler_count,
-                'currencies_count': currency_count,
-                'golds_count': gold_count,
-                'silvers_count': silver_count
-            }
-        }), 200
-    except Exception as e:
-        logger.error(f"Health check hatası: {e}")
-        return jsonify({
-            'status': 'unhealthy',
-            'error': f"Veritabanı bağlantı/tablo hatası: {str(e)}"
-        }), 500
+        cur = conn.cursor()
 
-@app.route('/api/update', methods=['POST'])
+        cur.execute("SELECT COUNT(*) FROM haberler")
+        haber = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM currencies")
+        doviz = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM golds")
+        altin = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM silvers")
+        gumus = cur.fetchone()[0]
+
+        cur.close()
+        put_db(conn)
+
+        return jsonify({
+            "status": "healthy",
+            "haber": haber,
+            "doviz": doviz,
+            "altin": altin,
+            "gumus": gumus
+        }), 200
+
+    except Exception as e:
+        return jsonify({"status": "unhealthy", "error": str(e)}), 500
+
+
+@app.route("/api/update", methods=["POST"])
 def manual_update():
-    """Manuel tam güncelleme"""
     try:
         update_all()
-        return jsonify({'success': True, 'message': 'Full update started'}), 200
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return {"success": True}, 200
+    except:
+        return {"success": False}, 500
+
 
 # ==========================================
-# BAŞLANGIÇ (sadece local development için)
+# DEVELOPMENT SERVER
 # ==========================================
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5001))
-    logger.info(f"🌐 Local Server başlıyor: 0.0.0.0:{port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5001))
+    logger.info(f"🌍 Local server aktif → {port}")
+    app.run(host="0.0.0.0", port=port, debug=False)
