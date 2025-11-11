@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from currency_models import get_db
+from models.db import get_db, put_db
 from datetime import datetime, timedelta
 
 currency_bp = Blueprint('currency', __name__, url_prefix='/api/currency')
