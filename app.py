@@ -77,6 +77,53 @@ def update_all():
     logger.info(f"\n✅ FULL UPDATE TAMAMLANDI")
     logger.info(f"{'='*60}\n")
 
+def init_scheduler():
+    """Scheduler'ı başlat (Gunicorn için)"""
+    try:
+        scheduler = BackgroundScheduler()
+        
+        # Her 1 saatte bir haberler
+        scheduler.add_job(
+            func=haberleri_cek,
+            trigger="interval",
+            hours=1,
+            id="haber_job"
+        )
+        
+        # Her 60 dakikada bir döviz/altın/gümüş
+        scheduler.add_job(
+            func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
+            trigger="interval",
+            minutes=60,
+            id="kurabak_job"
+        )
+        
+        scheduler.start()
+        logger.info("✅ Scheduler başlatıldı (her 60 dakikada otomatik güncelleme)")
+    except Exception as e:
+        logger.error(f"⚠️ Scheduler başlatma hatası: {e}")
+
+# ==========================================
+# ✅ UYGULAMA BAŞLATMA (GUNICORN İÇİN)
+# ==========================================
+logger.info("🚀 Uygulama başlatılıyor...")
+
+# Veritabanını başlat
+if init_db():
+    logger.info("✅ Veritabanı hazır!")
+    
+    # İlk veri çekimi
+    try:
+        logger.info("📥 İlk veri çekimi başlıyor...")
+        update_all()
+    except Exception as e:
+        logger.warning(f"⚠️ İlk veri çekimi sırasında sorun: {e}")
+    
+    # Scheduler'ı başlat
+    init_scheduler()
+else:
+    logger.error("❌ Veritabanı başlatılamadı!")
+
 # ==========================================
 # ADMIN UÇNOKTALARI
 # ==========================================
@@ -158,50 +205,10 @@ def manual_update():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 # ==========================================
-# BAŞLANGIÇ
+# BAŞLANGIÇ (sadece local development için)
 # ==========================================
 
 if __name__ == '__main__':
-    logger.info("🚀 Uygulama başlatılıyor...")
-    
-    # Veritabanını başlatmaya çalış
-    if init_db():
-        logger.info("✅ Veritabanı hazır!")
-        
-        # İlk veri çekimi
-        try:
-            update_all()
-        except Exception as e:
-            logger.warning(f"⚠️ İlk veri çekimi sırasında sorun: {e}")
-
-        try:
-            scheduler = BackgroundScheduler()
-            
-            # Her 1 saatte bir haberler
-            scheduler.add_job(
-                func=haberleri_cek,
-                trigger="interval",
-                hours=1,
-                id="haber_job"
-            )
-            
-            # Her 60 dakikada bir döviz/altın/gümüş
-            scheduler.add_job(
-                func=lambda: [fetch_currencies(), fetch_golds(), fetch_silvers()],
-                trigger="interval",
-                minutes=60,
-                id="kurabak_job"
-            )
-            
-            scheduler.start()
-            logger.info("✅ Scheduler başlatıldı")
-        except Exception as e:
-            logger.error(f"⚠️ Scheduler başlatma hatası: {e}")
-            
-        # Sunucuyu başlat
-        port = int(os.environ.get('PORT', 5001))
-        logger.info(f"🌐 Server başlıyor: 0.0.0.0:{port}")
-        app.run(host='0.0.0.0', port=port, debug=False)
-    else:
-        logger.error("❌ Uygulama veritabanı hatası nedeniyle başlatılamadı.")
-        sys.exit(1)
+    port = int(os.environ.get('PORT', 5001))
+    logger.info(f"🌐 Local Server başlıyor: 0.0.0.0:{port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
