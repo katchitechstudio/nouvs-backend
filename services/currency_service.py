@@ -1,5 +1,3 @@
-# currency_service.py - TAM DOSYA
-
 import requests
 from datetime import datetime
 import logging
@@ -30,8 +28,8 @@ def fetch_currencies():
         headers = {'authorization': f'apikey {Config.COLLECTAPI_TOKEN}'}
         
         # ✅ YENİ API: base=TRY kullan
-        url = "https://api.collectapi.com/economy/currencyToAll"
-        params = {'base': 'TRY', 'int': 1}  # ✅ int=1 (1 TRY miktar)
+        url = "https://api.collectapi.com/economy/currencyToAll"  # v1 kaldırıldı
+        params = {'base': 'TRY', 'int': 1}  # 1 TRY miktar
         
         response = requests.get(url, headers=headers, params=params, timeout=10)
         response.raise_for_status()
