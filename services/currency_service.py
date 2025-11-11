@@ -185,4 +185,4 @@ def fetch_silvers():
     except Exception as e:
         logger.error(f"Gümüş çekme hatası: {str(e)}")
         _log_update('silver', 'error', f'Çekme hatası: {e}')
-        return False
+        return False 
