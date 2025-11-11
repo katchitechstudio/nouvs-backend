@@ -2,7 +2,7 @@ import requests
 from datetime import datetime, timedelta
 import logging
 from config import Config
-from currency_models import get_db
+from models.db import get_db, put_db
 
 logger = logging.getLogger(__name__)
 
