@@ -10,7 +10,7 @@ import os
 # ==========================================
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -35,75 +35,51 @@ from models.db import get_db, put_db
 # FLASK APP
 # ==========================================
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Register routes
+# Blueprint register
 app.register_blueprint(currency_bp)
 app.register_blueprint(gold_bp)
 app.register_blueprint(silver_bp)
 app.register_blueprint(news_bp)
 
 # ==========================================
-# UPDATE MANAGER
-# ==========================================
-def update_all():
-    logger.info("\n========== 🌐 FULL UPDATE BAŞLADI ==========\n")
-
-    try:
-        haberleri_cek()
-        logger.info("📰 Haberler güncellendi.")
-    except Exception as e:
-        logger.error(f"Haber hatası → {e}")
-
-    try:
-        fetch_currencies()
-        logger.info("💱 Döviz güncellendi.")
-    except Exception as e:
-        logger.error(f"Döviz hatası → {e}")
-
-    try:
-        fetch_golds()
-        logger.info("🥇 Altın güncellendi.")
-    except Exception as e:
-        logger.error(f"Altın hatası → {e}")
-
-    try:
-        fetch_silvers()
-        logger.info("🥈 Gümüş güncellendi.")
-    except Exception as e:
-        logger.error(f"Gümüş hatası → {e}")
-
-    logger.info("\n========== ✅ FULL UPDATE TAMAMLANDI ==========\n")
-
-
-# ==========================================
-# APSCHEDULER
+# SCHEDULER (Deploy'da değil → sadece zamanlayıcı)
 # ==========================================
 def init_scheduler():
-    scheduler = BackgroundScheduler()
+    try:
+        scheduler = BackgroundScheduler()
 
-    # Haberler: Her saat
-    scheduler.add_job(haberleri_cek, "interval", hours=1, id="haber_job")
+        # Haberler (1 saat)
+        scheduler.add_job(haberleri_cek, "interval", hours=1, id="haber_job")
 
-    # Tüm güncellemeler: Her 60 dakika
-    scheduler.add_job(update_all, "interval", minutes=60, id="finance_job")
+        # Finans güncellemeleri (1 saat)
+        scheduler.add_job(fetch_currencies, "interval", hours=1, id="currency_job")
+        scheduler.add_job(fetch_golds, "interval", hours=1, id="gold_job")
+        scheduler.add_job(fetch_silvers, "interval", hours=1, id="silver_job")
 
-    scheduler.start()
-    logger.info("🚀 Scheduler başlatıldı (APSCHEDULER).")
+        scheduler.start()
+        logger.info("🚀 Scheduler başlatıldı (APSCHEDULER).")
+
+    except Exception as e:
+        logger.error(f"Scheduler hata: {e}")
 
 
 # ==========================================
-# STARTUP
+# STARTUP (Artık deploy'da güncelleme YOK!)
 # ==========================================
 logger.info("🔧 Backend başlıyor...")
 
-try:
-    update_all()  # ilk güncelleme uygulama açılır açılmaz
-except Exception as e:
-    logger.warning(f"İlk güncelleme hatalı: {e}")
+# ❌ Eskiden burada update_all çalışıyordu
+# ❌ Deploy sırasında API limiti yiyordu
+# ✔ Artık devre dışı bıraktık
+
+# try:
+#     update_all()
+# except Exception as e:
+#     logger.warning(f"İlk güncelleme sorunlu: {e}")
 
 init_scheduler()
-
 
 # ==========================================
 # ENDPOINTS
@@ -114,6 +90,7 @@ def home():
         "app": "Habersel + KuraBak Backend",
         "status": "running",
         "version": "7.0",
+        "database": "PostgreSQL",
         "timestamp": datetime.now().isoformat()
     })
 
@@ -125,43 +102,47 @@ def health():
         cur = conn.cursor()
 
         cur.execute("SELECT COUNT(*) FROM haberler")
-        haber_count = cur.fetchone()[0]
+        haber = cur.fetchone()[0]
 
         cur.execute("SELECT COUNT(*) FROM currencies")
-        doviz_count = cur.fetchone()[0]
+        doviz = cur.fetchone()[0]
 
         cur.execute("SELECT COUNT(*) FROM golds")
-        altin_count = cur.fetchone()[0]
+        altin = cur.fetchone()[0]
 
         cur.execute("SELECT COUNT(*) FROM silvers")
-        gumus_count = cur.fetchone()[0]
+        gumus = cur.fetchone()[0]
 
         cur.close()
         put_db(conn)
 
         return jsonify({
             "status": "healthy",
-            "haber": haber_count,
-            "doviz": doviz_count,
-            "altin": altin_count,
-            "gumus": gumus_count
+            "haber": haber,
+            "doviz": doviz,
+            "altin": altin,
+            "gumus": gumus
         }), 200
 
     except Exception as e:
         return jsonify({"status": "unhealthy", "error": str(e)}), 500
 
 
+# Manuel güncelleme (isteğe bağlı)
 @app.route("/api/update", methods=["POST"])
 def manual_update():
     try:
-        update_all()
+        haberleri_cek()
+        fetch_currencies()
+        fetch_golds()
+        fetch_silvers()
         return {"success": True}, 200
-    except Exception as e:
-        return {"success": False, "error": str(e)}, 500
+    except:
+        return {"success": False}, 500
 
 
 # ==========================================
-# LOCAL DEVELOPMENT
+# DEVELOPMENT SERVER
 # ==========================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
