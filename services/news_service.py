@@ -7,10 +7,9 @@ from models.db import get_db
 logger = logging.getLogger(__name__)
 
 def haberleri_cek():
-    """NewsAPI'den haber çeker ve veritabanına kaydeder."""
+    """NewsAPI'den HER ZAMAN GENERAL kategorisinden haber çeker."""
 
-    saat = datetime.now().hour
-    kategori = Config.KATEGORILER[saat % len(Config.KATEGORILER)]
+    kategori = "general"   # ✔ Sabit kategori
 
     logger.info("📰 Haberler çekiliyor...")
     logger.info(f"  📂 Kategori: {kategori}")
@@ -20,7 +19,7 @@ def haberleri_cek():
             "https://newsapi.org/v2/top-headlines",
             params={
                 "country": "tr",
-                "category": kategori,
+                "category": kategori,   # ✔ Sabit
                 "apiKey": Config.NEWS_API_KEY
             },
             timeout=10
@@ -38,7 +37,7 @@ def haberleri_cek():
 
         haberler = data.get("articles", [])
         if not haberler:
-            logger.warning("⚠ Haber bulunamadı!")
+            logger.warning("⚠ GENERAL kategorisinde haber bulunamadı!")
             return 0
 
         conn = get_db()
@@ -73,7 +72,7 @@ def haberleri_cek():
                 gorsel,
                 kaynak,
                 url,
-                kategori,
+                kategori,     # ✔ general olarak kaydediliyor
                 tarih_obj
             ))
 
