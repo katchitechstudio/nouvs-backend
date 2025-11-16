@@ -21,37 +21,37 @@ class Config:
     COLLECTAPI_TOKEN = os.environ.get("COLLECTAPI_TOKEN")
 
     # ======================================
+    # NEWSAPI Token (ÖNEMLİ ✓)
+    # ======================================
+    NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "63969732fd154f0f9b4d6ce8d058e53b")
+
+    # ======================================
     # HABERSEL (News) Ayarları
     # ======================================
     ALLOWED_SOURCES = ["NTV", "CNN", "Cumhuriyet", "HaberTürk"]
-    KATEGORILER = ["general", "economy", "sport", "health", "technology"]
+
+    # NewsAPI kategorileri
+    KATEGORILER = [
+        "general",
+        "business",
+        "technology",
+        "health",
+        "science",
+        "sports"
+    ]
 
     # ======================================
     # Döviz (Currency) Ayarları
     # Sadece 15 döviz işlenecek
     # ======================================
     CURRENCIES_LIST = [
-        'USD',
-        'EUR',
-        'JPY',
-        'GBP',
-        'CNY',
-        'CHF',
-        'CAD',
-        'AUD',
-        'NZD',
-        'SGD',
-        'HKD',
-        'SEK',
-        'KRW',
-        'NOK',
-        'INR'
+        "USD", "EUR", "JPY", "GBP", "CNY",
+        "CHF", "CAD", "AUD", "NZD", "SGD",
+        "HKD", "SEK", "KRW", "NOK", "INR"
     ]
 
     # ======================================
     # ALTIN FORMATLARI
-    # CollectAPI goldPrice → çok fazla çeşit döndürür
-    # Bunlar KuraBak için yeterlidir
     # ======================================
     GOLD_FORMATS = [
         "Gram Altın",
@@ -66,6 +66,6 @@ class Config:
     ]
 
     # ======================================
-    # GÜMÜŞ FORMATLARI (Sadece 1 tane)
+    # GÜMÜŞ FORMATLARI
     # ======================================
     SILVER_FORMATS = ["Gümüş"]
