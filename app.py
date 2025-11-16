@@ -10,12 +10,12 @@ import os
 # ==========================================
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 # ==========================================
-# IMPORTS (Artık temiz mimari)
+# IMPORTS
 # ==========================================
 from config import Config
 
@@ -35,9 +35,9 @@ from models.db import get_db, put_db
 # FLASK APP
 # ==========================================
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app)
 
-# Blueprint register
+# Register routes
 app.register_blueprint(currency_bp)
 app.register_blueprint(gold_bp)
 app.register_blueprint(silver_bp)
@@ -47,56 +47,60 @@ app.register_blueprint(news_bp)
 # UPDATE MANAGER
 # ==========================================
 def update_all():
-    logger.info("\n================ FULL UPDATE ================\n")
+    logger.info("\n========== 🌐 FULL UPDATE BAŞLADI ==========\n")
 
     try:
         haberleri_cek()
+        logger.info("📰 Haberler güncellendi.")
     except Exception as e:
         logger.error(f"Haber hatası → {e}")
 
     try:
         fetch_currencies()
+        logger.info("💱 Döviz güncellendi.")
     except Exception as e:
         logger.error(f"Döviz hatası → {e}")
 
     try:
         fetch_golds()
+        logger.info("🥇 Altın güncellendi.")
     except Exception as e:
         logger.error(f"Altın hatası → {e}")
 
     try:
         fetch_silvers()
+        logger.info("🥈 Gümüş güncellendi.")
     except Exception as e:
         logger.error(f"Gümüş hatası → {e}")
 
-    logger.info("\n✅ FULL UPDATE TAMAMLANDI\n")
+    logger.info("\n========== ✅ FULL UPDATE TAMAMLANDI ==========\n")
 
 
 # ==========================================
-# SCHEDULER
+# APSCHEDULER
 # ==========================================
 def init_scheduler():
-    try:
-        scheduler = BackgroundScheduler()
+    scheduler = BackgroundScheduler()
 
-        scheduler.add_job(haberleri_cek, "interval", hours=1, id="haber_job")
-        scheduler.add_job(update_all, "interval", minutes=60, id="finance_job")
+    # Haberler: Her saat
+    scheduler.add_job(haberleri_cek, "interval", hours=1, id="haber_job")
 
-        scheduler.start()
-        logger.info("✅ Scheduler başlatıldı.")
-    except Exception as e:
-        logger.error(f"Scheduler hata: {e}")
+    # Tüm güncellemeler: Her 60 dakika
+    scheduler.add_job(update_all, "interval", minutes=60, id="finance_job")
+
+    scheduler.start()
+    logger.info("🚀 Scheduler başlatıldı (APSCHEDULER).")
 
 
 # ==========================================
 # STARTUP
 # ==========================================
-logger.info("🚀 Backend başlatılıyor...")
+logger.info("🔧 Backend başlıyor...")
 
 try:
-    update_all()
+    update_all()  # ilk güncelleme uygulama açılır açılmaz
 except Exception as e:
-    logger.warning(f"İlk güncelleme sorunlu: {e}")
+    logger.warning(f"İlk güncelleme hatalı: {e}")
 
 init_scheduler()
 
@@ -110,7 +114,6 @@ def home():
         "app": "Habersel + KuraBak Backend",
         "status": "running",
         "version": "7.0",
-        "database": "PostgreSQL",
         "timestamp": datetime.now().isoformat()
     })
 
@@ -122,26 +125,26 @@ def health():
         cur = conn.cursor()
 
         cur.execute("SELECT COUNT(*) FROM haberler")
-        haber = cur.fetchone()[0]
+        haber_count = cur.fetchone()[0]
 
         cur.execute("SELECT COUNT(*) FROM currencies")
-        doviz = cur.fetchone()[0]
+        doviz_count = cur.fetchone()[0]
 
         cur.execute("SELECT COUNT(*) FROM golds")
-        altin = cur.fetchone()[0]
+        altin_count = cur.fetchone()[0]
 
         cur.execute("SELECT COUNT(*) FROM silvers")
-        gumus = cur.fetchone()[0]
+        gumus_count = cur.fetchone()[0]
 
         cur.close()
         put_db(conn)
 
         return jsonify({
             "status": "healthy",
-            "haber": haber,
-            "doviz": doviz,
-            "altin": altin,
-            "gumus": gumus
+            "haber": haber_count,
+            "doviz": doviz_count,
+            "altin": altin_count,
+            "gumus": gumus_count
         }), 200
 
     except Exception as e:
@@ -153,12 +156,12 @@ def manual_update():
     try:
         update_all()
         return {"success": True}, 200
-    except:
-        return {"success": False}, 500
+    except Exception as e:
+        return {"success": False, "error": str(e)}, 500
 
 
 # ==========================================
-# DEVELOPMENT SERVER
+# LOCAL DEVELOPMENT
 # ==========================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
