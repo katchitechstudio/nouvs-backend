@@ -2,15 +2,32 @@ from flask import Blueprint, jsonify, request
 from models.db import get_db, put_db
 from datetime import datetime, timedelta
 
+from utils.cache import get_cache, set_cache  # ← CACHE EKLENDİ
+
 currency_bp = Blueprint('currency', __name__, url_prefix='/api/currency')
 
 
 def _get_data(table_name, name_col, name_value=None):
-    """Veritabanından döviz/altın/gümüş verilerini çeker"""
+    """Veritabanından döviz/altın/gümüş verilerini çeker (CACHE DESTEKLİ)"""
+
+    # CACHE KEY
+    cache_key = f"{table_name}_{name_value or 'all'}"
+
+    # 60 saniyelik RAM CACHE
+    cached = get_cache(cache_key, 60)
+    if cached is not None:
+        return jsonify({
+            'success': True,
+            'count': len(cached) if isinstance(cached, list) else 1,
+            'data': cached
+        }), 200
+
+    # Cache yoksa DB'den oku
     try:
         conn = get_db()
         cursor = conn.cursor()
 
+        # Tablolara göre kolon seçimi
         if table_name in ['golds', 'silvers']:
             select_cols = 'name, buying, selling, rate,'
             name_alias = 'name'
@@ -40,6 +57,9 @@ def _get_data(table_name, name_col, name_value=None):
         if name_value and not data:
             return jsonify({'success': False, 'message': f'{name_value} bulunamadı'}), 404
 
+        # Cache'e yaz
+        set_cache(cache_key, data if not name_value else data[0])
+
         return jsonify({
             'success': True,
             'count': len(data),
@@ -48,6 +68,7 @@ def _get_data(table_name, name_col, name_value=None):
 
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
 
 
 def _get_history(table_name, name_col, name_value):
@@ -88,6 +109,9 @@ def _get_history(table_name, name_col, name_value):
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
+
+
+# ================== ENDPOINTS ==================
 
 @currency_bp.route('/all', methods=['GET'])
 def get_all_currencies():
