@@ -80,7 +80,7 @@ def haberleri_cek():
                 eklenen += 1
 
         # 7 günden eski haberleri sil
-        silme_tarihi = datetime.utcnow() - timedelta(days=7)
+        silme_tarihi = datetime.utcnow() - timedelta(days=4)
         cursor.execute('DELETE FROM haberler WHERE tarih < %s', (silme_tarihi,))
         silinen = cursor.rowcount
 
