@@ -66,18 +66,26 @@ def init_scheduler():
 
 
 # ==========================================
-# STARTUP (Artık deploy'da güncelleme YOK!)
+# 🔧 DATABASE MIGRATION (GEÇİCİ)
+# ==========================================
+def run_migration():
+    """Veritabanına change_percent kolonunu ekler"""
+    try:
+        logger.info("🔧 Migration başlatılıyor...")
+        from migrate_database import migrate
+        migrate()
+        logger.info("✅ Migration tamamlandı!")
+    except Exception as e:
+        logger.warning(f"⚠️ Migration hatası (göz ardı edildi): {e}")
+
+
+# ==========================================
+# STARTUP
 # ==========================================
 logger.info("🔧 Backend başlıyor...")
 
-# ❌ Eskiden burada update_all çalışıyordu
-# ❌ Deploy sırasında API limiti yiyordu
-# ✔ Artık devre dışı bıraktık
-
-# try:
-#     update_all()
-# except Exception as e:
-#     logger.warning(f"İlk güncelleme sorunlu: {e}")
+# 🔥 İLK ÇALIŞTIRMADA MIGRATION YAP
+run_migration()
 
 init_scheduler()
 
@@ -89,7 +97,7 @@ def home():
     return jsonify({
         "app": "Habersel + KuraBak Backend",
         "status": "running",
-        "version": "7.0",
+        "version": "7.1",  # Version güncellendi
         "database": "PostgreSQL",
         "timestamp": datetime.now().isoformat()
     })
