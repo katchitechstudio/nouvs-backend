@@ -7,14 +7,20 @@ logger = logging.getLogger(__name__)
 
 def fetch_currencies():
     try:
-        logger.info("💱 Dövizler çekiliyor...")
+        logger.info("💱 Dövizler çekiliyor (currencyToAll)...")
         
         headers = {
             'authorization': f'apikey {Config.COLLECTAPI_TOKEN}'
         }
-        url = "https://api.collectapi.com/economy/allCurrency"
         
-        r = requests.get(url, headers=headers, timeout=10)
+        # 🔥 YENİ ENDPOINT: currencyToAll (gerçek fiyatlar)
+        url = "https://api.collectapi.com/economy/currencyToAll"
+        params = {
+            'int': '10',  # 10 USD bazında
+            'tag': 'USD'  # USD'den diğer para birimlerine
+        }
+        
+        r = requests.get(url, headers=headers, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
         
@@ -22,23 +28,12 @@ def fetch_currencies():
             logger.error(f"API hata: {data}")
             return False
         
-        items = data.get("result", [])
+        items = data.get("result", {}).get("data", [])
         if not isinstance(items, list) or len(items) == 0:
             logger.error("API döviz listesi boş.")
             return False
         
-        # ✅ TRY var mı kontrol et
-        try_rate = None
-        for x in items:
-            if x.get("code") == "TRY":
-                try_rate = float(x.get("rate"))
-                break
-        
-        if try_rate:
-            logger.info(f"✅ TRY bulundu → {try_rate}")
-        else:
-            logger.warning("⚠️ TRY bulunamadı → USD bazlı hesaplama kullanılacak")
-            try_rate = 1.0  # Fallback
+        logger.info(f"✅ {len(items)} döviz alındı")
         
         conn = get_db()
         cur = conn.cursor()
@@ -49,13 +44,31 @@ def fetch_currencies():
             name = row.get("name")
             
             try:
-                rate_raw = float(row.get("rate"))
-            except:
+                # 🔥 YENİ: rate = 1 USD'nin TL karşılığı
+                usd_rate = float(row.get("rate"))  # 1 USD = X döviz
+                
+                # TRY için özel hesaplama
+                if code == "TRY":
+                    price_tl = 1.0  # 1 TL = 1 TL
+                    try_to_usd = usd_rate  # Referans için sakla
+                else:
+                    # Diğer dövizler: TRY üzerinden hesapla
+                    # Önce TRY/USD oranını bul
+                    cur.execute("SELECT rate FROM currencies WHERE code = 'TRY'")
+                    try_data = cur.fetchone()
+                    
+                    if try_data and try_data[0]:
+                        try_to_usd = float(try_data[0])
+                        # Örnek: EUR -> (1 EUR = 0.86 USD) * (42.35 TRY/USD) = 36.42 TRY
+                        price_tl = (1 / usd_rate) * try_to_usd
+                    else:
+                        # TRY henüz yok, atla
+                        logger.warning(f"TRY bulunamadı, {code} atlanıyor")
+                        continue
+                
+            except Exception as e:
+                logger.error(f"{code} hesaplama hatası: {e}")
                 continue
-            
-            # 🔥 YENİ: Hem fiyat hem de değişim oranı hesapla
-            # API'den gelen rate zaten TL karşılığı gibi görünüyor
-            price_tl = rate_raw  # TL fiyatı
             
             # Değişim oranı için önceki fiyatı al
             cur.execute("SELECT rate FROM currencies WHERE code = %s", (code,))
@@ -71,7 +84,7 @@ def fetch_currencies():
             else:
                 change_percent = 0.0  # İlk kayıt
             
-            # 🔥 YENİ: rate yerine price ve change_percent kaydet
+            # Veritabanına kaydet
             cur.execute("""
                 INSERT INTO currencies (code, name, rate, change_percent, updated_at)
                 VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
