@@ -44,7 +44,7 @@ app.register_blueprint(silver_bp)
 app.register_blueprint(news_bp)
 
 # ==========================================
-# SCHEDULER (Deploy'da değil → sadece zamanlayıcı)
+# SCHEDULER
 # ==========================================
 def init_scheduler():
     try:
@@ -97,7 +97,7 @@ def home():
     return jsonify({
         "app": "Habersel + KuraBak Backend",
         "status": "running",
-        "version": "7.1",  # Version güncellendi
+        "version": "7.1",
         "database": "PostgreSQL",
         "timestamp": datetime.now().isoformat()
     })
