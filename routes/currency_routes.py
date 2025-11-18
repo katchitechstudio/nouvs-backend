@@ -1,8 +1,7 @@
 from flask import Blueprint, jsonify, request
 from models.db import get_db, put_db
 from datetime import datetime, timedelta
-
-from utils.cache import get_cache, set_cache  # ← CACHE EKLENDİ
+from utils.cache import get_cache, set_cache
 
 currency_bp = Blueprint('currency', __name__, url_prefix='/api/currency')
 
@@ -27,12 +26,12 @@ def _get_data(table_name, name_col, name_value=None):
         conn = get_db()
         cursor = conn.cursor()
 
-        # Tablolara göre kolon seçimi
+        # 🔥 YENİ: change_percent kolonu da çekiliyor
         if table_name in ['golds', 'silvers']:
-            select_cols = 'name, buying, selling, rate,'
+            select_cols = 'name, buying, selling, rate, COALESCE(change_percent, 0.0) as change_percent,'
             name_alias = 'name'
         else:
-            select_cols = 'code, name, rate,'
+            select_cols = 'code, name, rate, COALESCE(change_percent, 0.0) as change_percent,'
             name_alias = 'code'
 
         query = f'''
@@ -82,10 +81,10 @@ def _get_history(table_name, name_col, name_value):
 
         cursor.execute(f'''
             SELECT {name_col} as name_code, rate,
-            to_char(timestamp, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as timestamp
+            to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as timestamp
             FROM {table_name}_history 
-            WHERE {name_col} = %s AND timestamp >= %s
-            ORDER BY timestamp ASC
+            WHERE {name_col} = %s AND created_at >= %s
+            ORDER BY created_at ASC
         ''', (name_value.upper() if name_col == 'code' else name_value, since))
 
         history = cursor.fetchall()
