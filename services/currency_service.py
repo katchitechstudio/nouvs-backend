@@ -16,8 +16,8 @@ def fetch_currencies():
         # 🔥 YENİ ENDPOINT: currencyToAll (gerçek fiyatlar)
         url = "https://api.collectapi.com/economy/currencyToAll"
         params = {
-            'int': '10',  # 10 USD bazında
-            'tag': 'USD'  # USD'den diğer para birimlerine
+            'int': '10',
+            'base': 'USD'  # tag değil, base!
         }
         
         r = requests.get(url, headers=headers, params=params, timeout=10)
