@@ -8,51 +8,71 @@ logger = logging.getLogger(__name__)
 def fetch_golds():
     try:
         logger.info("🥇 Altınlar çekiliyor...")
-
+        
         headers = {'authorization': f'apikey {Config.COLLECTAPI_TOKEN}'}
         url = "https://api.collectapi.com/economy/goldPrice"
-
+        
         r = requests.get(url, headers=headers, timeout=10)
         r.raise_for_status()
         data = r.json()
-
+        
         if not data.get("success"):
             logger.error("Altın API hatası.")
             return False
-
+        
         items = data["result"]
-
+        
         conn = get_db()
         cur = conn.cursor()
         added = 0
-
+        
         for item in items:
             name = item["name"]
-
+            
             if name not in Config.GOLD_FORMATS:
                 continue
-
+            
+            buying = float(item["buying"])
+            selling = float(item["selling"])
+            rate = float(item["rate"])
+            
+            # 🔥 YENİ: Değişim yüzdesini hesapla
+            cur.execute("SELECT rate FROM golds WHERE name = %s", (name,))
+            old_data = cur.fetchone()
+            
+            if old_data and old_data[0]:
+                old_rate = float(old_data[0])
+                if old_rate > 0:
+                    change_percent = ((rate - old_rate) / old_rate) * 100
+                else:
+                    change_percent = 0.0
+            else:
+                change_percent = 0.0  # İlk kayıt
+            
+            # Veritabanına kaydet
             cur.execute("""
-                INSERT INTO golds (name, buying, selling, rate, updated_at)
-                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                INSERT INTO golds (name, buying, selling, rate, change_percent, updated_at)
+                VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                 ON CONFLICT (name) DO UPDATE SET
                     buying=EXCLUDED.buying,
                     selling=EXCLUDED.selling,
                     rate=EXCLUDED.rate,
+                    change_percent=EXCLUDED.change_percent,
                     updated_at=CURRENT_TIMESTAMP
-            """, (name, float(item["buying"]), float(item["selling"]), float(item["rate"])))
-
+            """, (name, buying, selling, rate, change_percent))
+            
             cur.execute("INSERT INTO gold_history (name, rate) VALUES (%s, %s)", 
-                        (name, float(item["rate"])))
+                        (name, rate))
+            
             added += 1
-
+        
         conn.commit()
         cur.close()
         put_db(conn)
-
+        
         logger.info(f"✅ {added} altın güncellendi")
         return True
-
+        
     except Exception as e:
         logger.error(f"Altın çekme hatası: {e}")
         return False
