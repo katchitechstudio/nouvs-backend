@@ -37,6 +37,19 @@ def fetch_currencies():
         
         conn = get_db()
         cur = conn.cursor()
+        
+        # 🔥 ÖNCE TRY'Yİ BUL VE KAYDET!
+        try_to_usd = None
+        for row in items:
+            if row.get("code") == "TRY":
+                try_to_usd = float(row.get("rate"))  # 1 USD = X TRY
+                logger.info(f"✅ TRY bulundu: 1 USD = {try_to_usd} TRY")
+                break
+        
+        if not try_to_usd:
+            logger.error("❌ TRY bulunamadı!")
+            return False
+        
         added = 0
         
         for row in items:
@@ -44,27 +57,16 @@ def fetch_currencies():
             name = row.get("name")
             
             try:
-                # 🔥 YENİ: rate = 1 USD'nin TL karşılığı
                 usd_rate = float(row.get("rate"))  # 1 USD = X döviz
                 
-                # TRY için özel hesaplama
+                # Fiyat hesapla
                 if code == "TRY":
                     price_tl = 1.0  # 1 TL = 1 TL
-                    try_to_usd = usd_rate  # Referans için sakla
                 else:
-                    # Diğer dövizler: TRY üzerinden hesapla
-                    # Önce TRY/USD oranını bul
-                    cur.execute("SELECT rate FROM currencies WHERE code = 'TRY'")
-                    try_data = cur.fetchone()
-                    
-                    if try_data and try_data[0]:
-                        try_to_usd = float(try_data[0])
-                        # Örnek: EUR -> (1 EUR = 0.86 USD) * (42.35 TRY/USD) = 36.42 TRY
-                        price_tl = (1 / usd_rate) * try_to_usd
-                    else:
-                        # TRY henüz yok, atla
-                        logger.warning(f"TRY bulunamadı, {code} atlanıyor")
-                        continue
+                    # Diğer dövizler: 
+                    # Örnek: EUR rate=0.86 (1 USD = 0.86 EUR)
+                    # EUR fiyatı = (1 USD / 0.86 EUR) * 42.35 TRY = 49.24 TRY
+                    price_tl = (1.0 / usd_rate) * try_to_usd
                 
             except Exception as e:
                 logger.error(f"{code} hesaplama hatası: {e}")
@@ -76,7 +78,6 @@ def fetch_currencies():
             
             if old_data and old_data[0]:
                 old_price = float(old_data[0])
-                # Yüzde değişim hesapla
                 if old_price > 0:
                     change_percent = ((price_tl - old_price) / old_price) * 100
                 else:
