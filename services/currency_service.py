@@ -107,6 +107,13 @@ def fetch_currencies():
         cur.close()
         put_db(conn)
         
+        # 🔥 YENİ: Cache'i temizle
+        try:
+            from utils.cache import clear_cache
+            clear_cache()
+        except Exception as e:
+            logger.warning(f"Cache temizleme hatası: {e}")
+        
         logger.info(f"✅ {added} döviz güncellendi")
         return True
         
