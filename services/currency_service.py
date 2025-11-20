@@ -57,7 +57,12 @@ def fetch_currencies():
             name = row.get("name")
             
             try:
-                usd_rate = float(row.get("rate"))  # API'den gelen rate
+                # 🔥 GÜVENLİ PARSE: String veya number olabilir
+                rate_value = row.get("rate")
+                if isinstance(rate_value, str):
+                    usd_rate = float(rate_value.replace(",", "."))  # Virgül varsa nokta yap
+                else:
+                    usd_rate = float(rate_value)
                 
                 # Fiyat hesapla
                 if code == "TRY":
