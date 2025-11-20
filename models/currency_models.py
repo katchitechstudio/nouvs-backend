@@ -50,6 +50,7 @@ def init_currency_tables(cursor):
             buying FLOAT,
             selling FLOAT,
             rate FLOAT,
+            change_percent FLOAT DEFAULT 0,
             updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
     """)
@@ -67,6 +68,7 @@ def init_currency_tables(cursor):
             buying FLOAT,
             selling FLOAT,
             rate FLOAT,
+            change_percent FLOAT DEFAULT 0,
             updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
         );
     """)
