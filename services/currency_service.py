@@ -57,11 +57,15 @@ def fetch_currencies():
             name = row.get("name")
             
             try:
-                usd_rate = float(row.get("rate"))  # 1 USD = X döviz
+                usd_rate = float(row.get("rate"))  # API'den gelen rate
                 
                 # Fiyat hesapla
                 if code == "TRY":
                     price_tl = 1.0  # 1 TL = 1 TL
+                elif code == "USD":
+                    # USD için: rate zaten TRY cinsinden fiyat!
+                    # Örnek: rate=42.40 → 1 USD = 42.40 TRY
+                    price_tl = try_to_usd  # Direkt TRY değerini kullan
                 else:
                     # Diğer dövizler: 
                     # Örnek: EUR rate=0.86 (1 USD = 0.86 EUR)
