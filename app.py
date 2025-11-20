@@ -30,6 +30,7 @@ from routes.silver_routes import silver_bp
 from routes.news_routes import news_bp
 
 from models.db import get_db, put_db
+from models.currency_models import init_db
 
 # ==========================================
 # FLASK APP
@@ -66,26 +67,12 @@ def init_scheduler():
 
 
 # ==========================================
-# 🔧 DATABASE MIGRATION (GEÇİCİ)
-# ==========================================
-def run_migration():
-    """Veritabanına change_percent kolonunu ekler"""
-    try:
-        logger.info("🔧 Migration başlatılıyor...")
-        from migrate_database import migrate
-        migrate()
-        logger.info("✅ Migration tamamlandı!")
-    except Exception as e:
-        logger.warning(f"⚠️ Migration hatası (göz ardı edildi): {e}")
-
-
-# ==========================================
 # STARTUP
 # ==========================================
 logger.info("🔧 Backend başlıyor...")
 
-# 🔥 İLK ÇALIŞTIRMADA MIGRATION YAP
-run_migration()
+# 🔥 Veritabanı tablolarını başlat
+init_db()
 
 init_scheduler()
 
@@ -97,7 +84,7 @@ def home():
     return jsonify({
         "app": "Habersel + KuraBak Backend",
         "status": "running",
-        "version": "7.1",
+        "version": "7.2",
         "database": "PostgreSQL",
         "timestamp": datetime.now().isoformat()
     })
