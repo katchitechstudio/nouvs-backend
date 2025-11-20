@@ -1,16 +1,49 @@
 import time
+from threading import Lock
 
-CACHE = {}
-CACHE_TIME = {}
+# Basit RAM cache
+_cache = {}
+_cache_lock = Lock()
 
-def get_cache(key, max_age_seconds):
-    """Cache varsa ve süresi dolmamışsa döndürür."""
-    now = time.time()
-    if key in CACHE and (now - CACHE_TIME[key] < max_age_seconds):
-        return CACHE[key]
+def get_cache(key, ttl_seconds):
+    """
+    Cache'den veri al (eğer süresi dolmadıysa)
+    
+    Args:
+        key: Cache anahtarı
+        ttl_seconds: Geçerlilik süresi (saniye)
+    
+    Returns:
+        Cached data or None
+    """
+    with _cache_lock:
+        if key in _cache:
+            timestamp, data = _cache[key]
+            if time.time() - timestamp < ttl_seconds:
+                return data
+            else:
+                # Süresi dolmuş, sil
+                del _cache[key]
     return None
 
-def set_cache(key, value):
-    """Cache ekler veya günceller."""
-    CACHE[key] = value
-    CACHE_TIME[key] = time.time()
+
+def set_cache(key, data):
+    """
+    Cache'e veri kaydet
+    
+    Args:
+        key: Cache anahtarı
+        data: Kaydedilecek veri
+    """
+    with _cache_lock:
+        _cache[key] = (time.time(), data)
+
+
+def clear_cache():
+    """
+    🔥 YENİ: Tüm cache'i temizle
+    Scheduler yeni veri çektiğinde kullanılır
+    """
+    with _cache_lock:
+        _cache.clear()
+        print("🗑️ Cache temizlendi!")
