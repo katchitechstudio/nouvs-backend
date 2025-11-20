@@ -17,7 +17,7 @@ def fetch_currencies():
         url = "https://api.collectapi.com/economy/currencyToAll"
         params = {
             'int': '10',
-            'base': 'USD'  # tag değil, base!
+            'base': 'TRY'  # tag değil, base!
         }
         
         r = requests.get(url, headers=headers, params=params, timeout=10)
