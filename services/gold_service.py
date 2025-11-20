@@ -6,6 +6,9 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 def fetch_golds():
+    conn = None
+    cur = None
+    
     try:
         logger.info("🥇 Altınlar çekiliyor...")
         
@@ -67,8 +70,6 @@ def fetch_golds():
             added += 1
         
         conn.commit()
-        cur.close()
-        put_db(conn)
         
         # 🔥 YENİ: Cache'i temizle
         try:
@@ -82,4 +83,12 @@ def fetch_golds():
         
     except Exception as e:
         logger.error(f"Altın çekme hatası: {e}")
+        if conn:
+            conn.rollback()
         return False
+        
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            put_db(conn)
