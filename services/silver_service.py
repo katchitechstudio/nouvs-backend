@@ -6,6 +6,9 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 def fetch_silvers():
+    conn = None
+    cur = None
+    
     try:
         logger.info("🥈 Gümüş çekiliyor...")
         
@@ -58,8 +61,6 @@ def fetch_silvers():
                     (name, rate))
         
         conn.commit()
-        cur.close()
-        put_db(conn)
         
         # 🔥 YENİ: Cache'i temizle
         try:
@@ -73,4 +74,12 @@ def fetch_silvers():
         
     except Exception as e:
         logger.error(f"Gümüş çekme hatası: {e}")
+        if conn:
+            conn.rollback()
         return False
+        
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            put_db(conn)
