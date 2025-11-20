@@ -6,6 +6,9 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 def fetch_currencies():
+    conn = None
+    cur = None
+    
     try:
         logger.info("💱 Dövizler çekiliyor (currencyToAll)...")
         
@@ -113,8 +116,6 @@ def fetch_currencies():
             added += 1
         
         conn.commit()
-        cur.close()
-        put_db(conn)
         
         # 🔥 YENİ: Cache'i temizle
         try:
@@ -128,4 +129,13 @@ def fetch_currencies():
         
     except Exception as e:
         logger.error(f"Döviz çekme hatası: {e}")
+        if conn:
+            conn.rollback()  # Hata olursa geri al
         return False
+        
+    finally:
+        # ← HATA OLSA BİLE burası çalışır!
+        if cur:
+            cur.close()
+        if conn:
+            put_db(conn)  # Bağlantıyı mutlaka geri ver
