@@ -20,7 +20,7 @@ def fetch_currencies():
         url = "https://api.collectapi.com/economy/currencyToAll"
         params = {
             'int': '10',
-            'base': 'TRY'  # tag değil, base!
+            'base': 'TRY'  # TRY bazlı fiyatlar
         }
         
         r = requests.get(url, headers=headers, params=params, timeout=10)
@@ -36,22 +36,17 @@ def fetch_currencies():
             logger.error("API döviz listesi boş.")
             return False
         
+        # 🔥 YENİ: TRY'yi manuel olarak listeye ekle (API base=TRY olunca TRY'yi göstermiyor)
+        items.append({
+            "code": "TRY",
+            "name": "Turkish Lira",
+            "rate": 1.0
+        })
+        
         logger.info(f"✅ {len(items)} döviz alındı")
         
         conn = get_db()
         cur = conn.cursor()
-        
-        # 🔥 ÖNCE TRY'Yİ BUL VE KAYDET!
-        try_to_usd = None
-        for row in items:
-            if row.get("code") == "TRY":
-                try_to_usd = float(row.get("rate"))  # 1 USD = X TRY
-                logger.info(f"✅ TRY bulundu: 1 USD = {try_to_usd} TRY")
-                break
-        
-        if not try_to_usd:
-            logger.error("❌ TRY bulunamadı!")
-            return False
         
         added = 0
         
@@ -63,22 +58,23 @@ def fetch_currencies():
                 # 🔥 GÜVENLİ PARSE: String veya number olabilir
                 rate_value = row.get("rate")
                 if isinstance(rate_value, str):
-                    usd_rate = float(rate_value.replace(",", "."))  # Virgül varsa nokta yap
+                    rate = float(rate_value.replace(",", "."))  # Virgül varsa nokta yap
                 else:
-                    usd_rate = float(rate_value)
+                    rate = float(rate_value)
                 
-                # Fiyat hesapla
+                # 🔥 YENİ MANTIK: base=TRY olduğu için rate zaten TRY cinsinden
+                # Örnek: USD rate = 0.0236 → 1 TRY = 0.0236 USD → 1 USD = 1/0.0236 = 42.37 TRY
+                
                 if code == "TRY":
                     price_tl = 1.0  # 1 TL = 1 TL
-                elif code == "USD":
-                    # USD için: rate zaten TRY cinsinden fiyat!
-                    # Örnek: rate=42.40 → 1 USD = 42.40 TRY
-                    price_tl = try_to_usd  # Direkt TRY değerini kullan
                 else:
-                    # Diğer dövizler: 
-                    # Örnek: EUR rate=0.86 (1 USD = 0.86 EUR)
-                    # EUR fiyatı = (1 USD / 0.86 EUR) * 42.35 TRY = 49.24 TRY
-                    price_tl = (1.0 / usd_rate) * try_to_usd
+                    # Diğer dövizler: 1 TRY = rate [döviz]
+                    # Örnek: 1 TRY = 0.0236 USD → 1 USD = 1/0.0236 = 42.37 TRY
+                    if rate > 0:
+                        price_tl = 1.0 / rate
+                    else:
+                        logger.warning(f"{code} rate=0, atlanıyor")
+                        continue
                 
             except Exception as e:
                 logger.error(f"{code} hesaplama hatası: {e}")
@@ -130,7 +126,7 @@ def fetch_currencies():
     except Exception as e:
         logger.error(f"Döviz çekme hatası: {e}")
         if conn:
-            conn.rollback()  # Hata olursa geri al
+            conn.rollback()
         return False
         
     finally:
@@ -138,4 +134,4 @@ def fetch_currencies():
         if cur:
             cur.close()
         if conn:
-            put_db(conn)  # Bağlantıyı mutlaka geri ver
+            put_db(conn)
