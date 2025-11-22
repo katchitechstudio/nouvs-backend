@@ -38,10 +38,15 @@ def fetch_golds():
             buying = float(item["buying"])
             selling = float(item["selling"])
             
-            # 🔥 DÜZELTİLDİ: CollectAPI'de rate yok, buying fiyatını kullanıyoruz
+            # 🔥 NEGATİF/SIFIR KONTROLÜ
+            if buying <= 0 or selling <= 0:
+                logger.warning(f"⚠️ {name} buying={buying}, selling={selling} (negatif/sıfır), atlanıyor")
+                continue
+            
+            # DÜZELTİLDİ: CollectAPI'de rate yok, buying fiyatını kullanıyoruz
             rate = buying
             
-            # 🔥 YENİ: Değişim yüzdesini hesapla
+            # Değişim yüzdesini hesapla
             cur.execute("SELECT rate FROM golds WHERE name = %s", (name,))
             old_data = cur.fetchone()
             
@@ -73,7 +78,7 @@ def fetch_golds():
         
         conn.commit()
         
-        # 🔥 YENİ: Cache'i temizle
+        # Cache'i temizle
         try:
             from utils.cache import clear_cache
             clear_cache()
