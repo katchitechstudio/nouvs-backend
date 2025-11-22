@@ -62,6 +62,11 @@ def fetch_currencies():
                 else:
                     rate = float(rate_value)
                 
+                # 🔥 YENİ: NEGATİF/SIFIR KONTROLÜ
+                if rate <= 0:
+                    logger.warning(f"⚠️ {code} rate={rate} (negatif/sıfır), atlanıyor")
+                    continue
+                
                 # 🔥 YENİ MANTIK: base=TRY olduğu için rate zaten TRY cinsinden
                 # Örnek: USD rate = 0.0236 → 1 TRY = 0.0236 USD → 1 USD = 1/0.0236 = 42.37 TRY
                 
@@ -70,14 +75,15 @@ def fetch_currencies():
                 else:
                     # Diğer dövizler: 1 TRY = rate [döviz]
                     # Örnek: 1 TRY = 0.0236 USD → 1 USD = 1/0.0236 = 42.37 TRY
-                    if rate > 0:
-                        price_tl = 1.0 / rate
-                    else:
-                        logger.warning(f"{code} rate=0, atlanıyor")
-                        continue
+                    price_tl = 1.0 / rate
                 
             except Exception as e:
                 logger.error(f"{code} hesaplama hatası: {e}")
+                continue
+            
+            # 🔥 YENİ: FİYAT SAĞLIK KONTROLÜ
+            if price_tl <= 0 or price_tl > 1000000:
+                logger.warning(f"⚠️ {code} price_tl={price_tl} (anormal), atlanıyor")
                 continue
             
             # Değişim oranı için önceki fiyatı al
