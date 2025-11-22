@@ -27,12 +27,18 @@ def fetch_silvers():
         name = "Gümüş"
         buying = float(item["buying"])
         selling = float(item["selling"])
+        
+        # 🔥 NEGATİF/SIFIR KONTROLÜ
+        if buying <= 0 or selling <= 0:
+            logger.warning(f"⚠️ {name} buying={buying}, selling={selling} (negatif/sıfır), atlanıyor")
+            return False
+        
         rate = buying
         
         conn = get_db()
         cur = conn.cursor()
         
-        # 🔥 YENİ: Değişim yüzdesini hesapla
+        # Değişim yüzdesini hesapla
         cur.execute("SELECT rate FROM silvers WHERE name = %s", (name,))
         old_data = cur.fetchone()
         
@@ -62,7 +68,7 @@ def fetch_silvers():
         
         conn.commit()
         
-        # 🔥 YENİ: Cache'i temizle
+        # Cache'i temizle
         try:
             from utils.cache import clear_cache
             clear_cache()
