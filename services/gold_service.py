@@ -37,7 +37,9 @@ def fetch_golds():
             
             buying = float(item["buying"])
             selling = float(item["selling"])
-            rate = float(item["rate"])
+            
+            # 🔥 DÜZELTİLDİ: CollectAPI'de rate yok, buying fiyatını kullanıyoruz
+            rate = buying
             
             # 🔥 YENİ: Değişim yüzdesini hesapla
             cur.execute("SELECT rate FROM golds WHERE name = %s", (name,))
