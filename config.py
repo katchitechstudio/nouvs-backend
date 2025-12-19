@@ -11,25 +11,31 @@ class Config:
     DB_USER = os.environ.get("DB_USER", "postgres")
     DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
     DB_NAME = os.environ.get("DB_NAME", "habersel")
-
+    
     # Eğer Render/Heroku DATABASE_URL veriyorsa override et
     DATABASE_URL = os.environ.get("DATABASE_URL")
-
+    
+    # ======================================
+    # REDIS (YENİ ✓)
+    # ======================================
+    REDIS_URL = os.environ.get("REDIS_URL")
+    CACHE_TIMEOUT = 300  # 5 dakika (saniye)
+    
     # ======================================
     # CollectAPI Token
     # ======================================
     COLLECTAPI_TOKEN = os.environ.get("COLLECTAPI_TOKEN")
-
+    
     # ======================================
     # NEWSAPI Token (ÖNEMLİ ✓)
     # ======================================
     NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "63969732fd154f0f9b4d6ce8d058e53b")
-
+    
     # ======================================
     # HABERSEL (News) Ayarları
     # ======================================
     ALLOWED_SOURCES = ["NTV", "CNN", "Cumhuriyet", "HaberTürk"]
-
+    
     # NewsAPI kategorileri
     KATEGORILER = [
         "general",
@@ -39,7 +45,7 @@ class Config:
         "science",
         "sports"
     ]
-
+    
     # ======================================
     # Döviz (Currency) Ayarları
     # Sadece 15 döviz işlenecek
@@ -49,7 +55,7 @@ class Config:
         "CHF", "CAD", "AUD", "NZD", "SGD",
         "HKD", "SEK", "KRW", "NOK", "INR"
     ]
-
+    
     # ======================================
     # ALTIN FORMATLARI
     # ======================================
@@ -64,7 +70,7 @@ class Config:
         "Ziynet Altın",
         "Reşat Lira Altın"
     ]
-
+    
     # ======================================
     # GÜMÜŞ FORMATLARI
     # ======================================
